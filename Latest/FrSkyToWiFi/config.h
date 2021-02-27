@@ -13,7 +13,7 @@
 
 Complete change log and debugging options are at the bottom of this tab
                                           
-
+ v0.0.2  Added HUD display, bug fixes
                                                                  
 */
 //===========================================================================================
