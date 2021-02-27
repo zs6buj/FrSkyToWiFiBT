@@ -49,10 +49,7 @@
     uint32_t  badFrames = 0;
     uint32_t  packetloss_millis = 0;
     uint8_t   fpLedState = LOW; 
-    uint32_t  fpLed_millis = 0;
-             
-    #define   frameSize  38                   // len, type, 35(24ch control) + CRC = 38
-    byte      fpbuf[frameSize];
+    uint32_t  fpLed_millis = 0;           
 
     static const uint8_t max_ch = 26;         // 24 + 2 digi ch
     int16_t   pwm_ch[max_ch];                 // PWM Channels
@@ -83,7 +80,7 @@
 
     frport_t  frport_type = f_none; 
     
-    static const uint16_t  fr_max = 48;           // frport frame buffer  35 + 2 + headroom 
+    static const uint16_t  fr_max = 48;           // f.port len, type, 35(24ch control) + CRC = 38 + headroom 
     byte      frbuf[fr_max];
     
     bool latlon_800_flag=false;     // 0800  
@@ -215,16 +212,16 @@
     void          CheckForTimeout();   
     void          ServiceStatusLed();
     void          BlinkFpLed(uint32_t period);
-    bool          Send_Frsky_Frame(); 
+    bool          Send_WiFi_BT_Frame(); 
     #if (defined btBuiltin)    
       bool          Send_Bluetooth(uint8_t *buf, uint16_t len);   
     #endif  
     bool          Send_TCP(uint8_t *buf, uint16_t len);           
     bool          Send_UDP(uint8_t *buf, uint16_t len);
     void          DecodeFrsky();
-    uint32_t      bit32Unpack(uint32_t dword,uint8_t displ, uint8_t lth);
-    uint16_t      byt16Unpack(uint8_t posn);
-    uint32_t      byt32Unpack(uint8_t posn); 
+    uint32_t      bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth);
+    uint16_t      uint16Extract(uint8_t posn);
+    uint32_t      uint32Extract(uint8_t posn); 
     uint32_t      createMask(uint8_t lo, uint8_t hi);       
             
 }; // end of class
@@ -259,7 +256,7 @@
 
       #if ( (defined ESP8266) || ( (defined ESP32) && (defined ESP32_SoftwareSerial)) )
  
-          Log.printf(" and is 1-wire simplex on tx pin = %d\n", frTx);
+          Log.printf(" and is 1-wire simplex on rx pin = %d\n", frRx);
 
           nbdelay(100);
           frSerial.begin(frBaud, SWSERIAL_8N1, frRx, frTx, frInvert);     // SoftwareSerial
@@ -268,7 +265,7 @@
 
       #else  // HardwareSerial
           frSerial.begin(frBaud, SERIAL_8N1, frRx, frTx, frInvert);                     
-          Log.printf(" simplex on tx pin = %d\n", frTx);
+          Log.printf(" simplex on rx pin = %d\n", frRx);
 
    
       #endif
@@ -300,14 +297,18 @@
       if ( (frport_type == f_port1) || (frport_type == f_port2) ) { 
         if ( FPort_Read_A_Frame(&FrSkyPort::frbuf[0], frport_type) ) {
           FrSkyPort::DecodeFrsky();     
-          FrSkyPort::Send_Frsky_Frame();
+          FrSkyPort::Send_WiFi_BT_Frame();
         }
  
       } else  
       if (set.frport == s_port) {  
         if ( SPort_Read_A_Frame(&FrSkyPort::frbuf[0]) ) {
+          #if (defined Debug_FPort_Buffer) 
+             Log.print("Good FrSky Frame Read: ");
+             FrSkyPort::PrintBuffer(frbuf, 10);
+          #endif           
           FrSkyPort::DecodeFrsky();
-          FrSkyPort::Send_Frsky_Frame();
+          FrSkyPort::Send_WiFi_BT_Frame();
         }
       }  
      }
@@ -403,7 +404,7 @@
         while (!(FrSkyPort::chr==0x7E)) {     // find first 0x7E, should be start, but could be previous stop
           FrSkyPort::chr = FrSkyPort::ReadByte();
         }
-        FrSkyPort::fpbuf[0] = FrSkyPort::chr;
+        FrSkyPort::frbuf[0] = FrSkyPort::chr;
         FrSkyPort::chr = FrSkyPort::ReadByte();    // could be start 0x7E or len 0x08, 0x0D, 0x18, 0x20, 0x23  
         while (FrSkyPort::chr == 0x7E) {           // if start 0x7E, then the first one was a stop so ignore it
           *buf = FrSkyPort::chr;
@@ -551,20 +552,22 @@
       while (Serial1.available()) {
     
         if (b == 0x7E) {  // end of frame parse
+          if (i == 2) {
+            memset(&buf[2], 0x00, 8); // clear the rest
+          }
           buf[0] = b;
-          i = 1;  
-        
+          i = 1;                 
           if (buf[2] == 0x10) {
             if (buf[9] == (0xFF-crcin)){
-              goodFrames++;
-              //Log.print(" CRC Good: ");
+              frGood = true;            
+              frGood_millis = millis();  
+              goodFrames++;               
               crcin = 0;
-              memset(&buf[2], 0x00, 1);
               return true;              // RETURN
             } else {
               badFrames++;              
               //Log.print(" CRC Bad!: "); 
-             memset(&buf[2], 0x00, 8);            
+           
             }
           }
           crcin = 0;
@@ -867,7 +870,7 @@
     
 
     //===================================================================    
-    bool FrSkyPort::Send_Frsky_Frame() {
+    bool FrSkyPort::Send_WiFi_BT_Frame() {
 
     bool msgSent = false;    
     
@@ -880,8 +883,8 @@
 
           #ifdef  Debug_Frs_Down
             if (msgSent) {
-              Log.println("Sent by Bluetooth:");
-              PrintMavBuffer(&frbuf);
+              Log.println("Sent by Bluetooth:");  
+              PrintBuffer(&frbuf, 10);
             }
           #endif
         }
@@ -934,7 +937,7 @@
 
                   #if (defined Debug_Frs_Down) || (defined Debug_Send_UDP_Frs)
                     Log.print("Sent by WiFi UDP: msgSent="); Log.println(msgSent);
-                    PrintMavBuffer(&frbuf);
+                    PrintBuffer(&frbuf, 10);
                   #endif                          
                 }
              }  
@@ -945,7 +948,7 @@
       }
      }
      return msgSent;
-    }  // end of Send_FrSky_Frame()
+    }  // end of Send_WiFi_BT_Frame()
  
     //===================================================================      
 
@@ -991,7 +994,11 @@
       udp_object[active_object_idx]->beginPacket(UDP_remoteIP, udp_send_port);  
     
       size_t sent = udp_object[active_object_idx]->write(buf,len);
-
+      
+      #if (defined Debug_FPort_Buffer) 
+        Log.print("Send_UDP buffer: ");
+        FrSkyPort::PrintBuffer(buf, 10);
+      #endif   
       if (sent == len) {
         msgSent = true;
         link_status.packets_sent++;
@@ -1106,8 +1113,8 @@
 
     static uint16_t prev_appID = 0;
        
-    uint16_t fr_appID = FrSkyPort::byt16Unpack(3);
-    fr_payload = FrSkyPort::byt32Unpack(5);
+    uint16_t fr_appID   = FrSkyPort::uint16Extract(3);
+             fr_payload = FrSkyPort::uint32Extract(5);
     //   Log.print(" fr_appID=");
     //   Log.println(fr_appID, HEX);
 
@@ -1115,7 +1122,7 @@
     switch(fr_appID) {
  
       case 0x800:                      // Latitude and Longitude
-                   fr_latlong = FrSkyPort::byt32Unpack(5);
+                   fr_latlong = FrSkyPort::uint32Extract(5);
                    ms2bits = fr_latlong >> 30;
                    fr_latlong = fr_latlong & 0x3fffffff; // remove ms2bits
              
@@ -1176,8 +1183,8 @@
                    ct[4] = 0;  // terminate string
 
                    if (ct[0] == 0 || ct[1] == 0 || ct[2] == 0 || ct[3] == 0) 
-                 //    fr_severity = (bit32Unpack(fr_payload,15,1) * 4) + (bit32Unpack(fr_payload,23,1) * 2) + (bit32Unpack(fr_payload,30,1) * 1);
-                     fr_severity = (bit32Unpack(fr_payload,23,1) * 4) + (bit32Unpack(fr_payload,15,1) * 2) + (bit32Unpack(fr_payload,7,1) * 1); 
+                 //    fr_severity = (bit32Extract(fr_payload,15,1) * 4) + (bit32Extract(fr_payload,23,1) * 2) + (bit32Extract(fr_payload,30,1) * 1);
+                     fr_severity = (bit32Extract(fr_payload,23,1) * 4) + (bit32Extract(fr_payload,15,1) * 2) + (bit32Extract(fr_payload,7,1) * 1); 
                    if (strcmp(ct,p_ct)==0){     //  If this one = previous one it's a duplicate
                      ct_dups++;
                      break;
@@ -1219,12 +1226,12 @@
                    break; 
                    
                  case 0x5001:                         // AP Status 2 Hz
-                   fr_flight_mode = bit32Unpack(fr_payload,0,5);
-                   fr_simple = bit32Unpack(fr_payload,5,2);
-                   fr_land_complete = bit32Unpack(fr_payload,7,1);
-                   fr_armed = bit32Unpack(fr_payload,8,1);
-                   fr_bat_fs = bit32Unpack(fr_payload,9,1);
-                   fr_ekf_fs = bit32Unpack(fr_payload,10,2);                   
+                   fr_flight_mode = bit32Extract(fr_payload,0,5);
+                   fr_simple = bit32Extract(fr_payload,5,2);
+                   fr_land_complete = bit32Extract(fr_payload,7,1);
+                   fr_armed = bit32Extract(fr_payload,8,1);
+                   fr_bat_fs = bit32Extract(fr_payload,9,1);
+                   fr_ekf_fs = bit32Extract(fr_payload,10,2);                   
 
                    AP_5001_flag = true;   
                    #if defined Print_Decoded_FrSky
@@ -1244,17 +1251,17 @@
                                                     
                    break;                   
                  case 0x5002:                         // GPS Status & Alt msl 1 Hz
-                   fr_numsats = bit32Unpack(fr_payload, 0, 4);
-                   fr_gpsStatus = bit32Unpack(fr_payload, 4, 2) + bit32Unpack(fr_payload, 14, 2);
-                   fr_hdop = bit32Unpack(fr_payload, 7, 7) * (10^bit32Unpack(fr_payload, 6, 1));
-               //    fr_vdop = bit32Unpack(fr_payload, 15, 7) * (10^bit32Unpack(fr_payload, 14, 1)); 
+                   fr_numsats = bit32Extract(fr_payload, 0, 4);
+                   fr_gpsStatus = bit32Extract(fr_payload, 4, 2) + bit32Extract(fr_payload, 14, 2);
+                   fr_hdop = bit32Extract(fr_payload, 7, 7) * (10^bit32Extract(fr_payload, 6, 1));
+               //    fr_vdop = bit32Extract(fr_payload, 15, 7) * (10^bit32Extract(fr_payload, 14, 1)); 
                
-                  fr_gps_alt = bit32Unpack(fr_payload,24,7) * (10^bit32Unpack(fr_gps_alt,22,2)); //-- dm
+                  fr_gps_alt = bit32Extract(fr_payload,24,7) * (10^bit32Extract(fr_gps_alt,22,2)); //-- dm
                   fr_gps_alt*=10;
-                  if (bit32Unpack(fr_gps_alt,31,1) == 1)
+                  if (bit32Extract(fr_gps_alt,31,1) == 1)
                      fr_gps_alt = fr_gps_alt * -1;
                   
-                //   fr_gps_alt = bit32Unpack(fr_payload, 16, 16);  //  For use with modified arducopter 3.5.5
+                //   fr_gps_alt = bit32Extract(fr_payload, 16, 16);  //  For use with modified arducopter 3.5.5
                    #if defined Print_Decoded_FrSky
                      Log.print("FrSky 5002: Num sats=");
                      Log.print(fr_numsats);
@@ -1270,9 +1277,9 @@
                    break;
                  case 0x5003:                         // Battery 1 Hz
   
-                   fr_bat_volts = (bit32Unpack(fr_payload,0,9)) / 10;  // dv -> V
-                   fr_bat_amps = bit32Unpack(fr_payload,10,7) * (10^bit32Unpack(fr_payload,9,1));
-                   fr_bat_mAh = bit32Unpack(fr_payload,17,15);
+                   fr_bat_volts = (bit32Extract(fr_payload,0,9)) / 10;  // dv -> V
+                   fr_bat_amps = bit32Extract(fr_payload,10,7) * (10^bit32Extract(fr_payload,9,1));
+                   fr_bat_mAh = bit32Extract(fr_payload,17,15);
 
                    Bat_5003_flag = true;
                    #if defined Print_Decoded_FrSky
@@ -1285,13 +1292,13 @@
                    #endif       
                    break;                          
                  case 0x5004:                         // Home 2 Hz
-                   fr_home_dist = bit32Unpack(fr_payload,2,10) * (10^bit32Unpack(fr_payload,0,2));
+                   fr_home_dist = bit32Extract(fr_payload,2,10) * (10^bit32Extract(fr_payload,0,2));
                    fr_fhome_dist = (float)fr_home_dist * 0.1;   // metres
-                   fr_home_alt = bit32Unpack(fr_payload,14,10) * (10^bit32Unpack(fr_payload,12,2));
+                   fr_home_alt = bit32Extract(fr_payload,14,10) * (10^bit32Extract(fr_payload,12,2));
                    fr_fhome_alt = (float)(fr_home_alt) * 0.01;  // metres
-                   if (bit32Unpack(fr_payload,24,1) == 1) 
+                   if (bit32Extract(fr_payload,24,1) == 1) 
                      fr_fhome_alt *=  -1;
-                   fr_home_angle = bit32Unpack(fr_payload, 25,  7) * 3;
+                   fr_home_angle = bit32Extract(fr_payload, 25,  7) * 3;
                    
                    Home_5004_flag = true;
                    #if defined Print_Decoded_FrSky
@@ -1305,11 +1312,11 @@
                
                    break;                        
                  case 0x5005:                    // Vert and Horiz Velocity and Yaw angle (Heading) 2 Hz
-                   fr_vx = bit32Unpack(fr_payload,1,7) * (10^bit32Unpack(fr_payload,0,1));
-                   if (bit32Unpack(fr_payload,8,1) == 1)
+                   fr_vx = bit32Extract(fr_payload,1,7) * (10^bit32Extract(fr_payload,0,1));
+                   if (bit32Extract(fr_payload,8,1) == 1)
                      fr_vx *= -1;
-                   fr_vy = bit32Unpack(fr_payload,10,7) * (10^bit32Unpack(fr_payload,9,1));
-                   fr_yaw = bit32Unpack(fr_payload,17,11) * 0.2;
+                   fr_vy = bit32Extract(fr_payload,10,7) * (10^bit32Extract(fr_payload,9,1));
+                   fr_yaw = bit32Extract(fr_payload,17,11) * 0.2;
     
                    velyaw_5005_flag = true;        
                    #if defined Print_Decoded_FrSky
@@ -1324,11 +1331,11 @@
                    
                    break; 
                  case 0x5006:                         // Roll, Pitch and Range - Max Hz      
-                   fr_roll = bit32Unpack(fr_payload,0,11);        
+                   fr_roll = bit32Extract(fr_payload,0,11);        
                    fr_roll = (fr_roll - 900) * 0.2;             //  -- roll [0,1800] ==> [-180,180] 
-                   fr_pitch = bit32Unpack(fr_payload,11,10);   
+                   fr_pitch = bit32Extract(fr_payload,11,10);   
                    fr_pitch = (fr_pitch - 450) * 0.2;           //  -- pitch [0,900] ==> [-90,90]
-                   fr_range = bit32Unpack(fr_payload,22,10) * (10^bit32Unpack(fr_payload,21,1));
+                   fr_range = bit32Extract(fr_payload,22,10) * (10^bit32Extract(fr_payload,21,1));
 
                    AT_5006_flag = true;
                    #if defined Print_Decoded_FrSky
@@ -1345,8 +1352,8 @@
                    #endif
                    break;                                         
                  case 0x5007:                         // Parameters
-                   fr_param_id = bit32Unpack(fr_payload,24,4);
-                   fr_param_val = bit32Unpack(fr_payload,0,24);
+                   fr_param_id = bit32Extract(fr_payload,24,4);
+                   fr_param_val = bit32Extract(fr_payload,0,24);
                    if (fr_param_id == 1) {
                      fr_frame_type = fr_param_val;
                      Param_50071_flag = true;
@@ -1392,9 +1399,9 @@
 
                    break;    
                  case 0x5008:                         // Battery 2
-                   fr_bat2_volts = bit32Unpack(fr_payload,0,9);
-                   fr_bat2_amps = bit32Unpack(fr_payload,10,7)  * (10^bit32Unpack(fr_payload,9,1));
-                   fr_bat2_mAh = bit32Unpack(fr_payload,17,15);
+                   fr_bat2_volts = bit32Extract(fr_payload,0,9);
+                   fr_bat2_amps = bit32Extract(fr_payload,10,7)  * (10^bit32Extract(fr_payload,9,1));
+                   fr_bat2_mAh = bit32Extract(fr_payload,17,15);
                    #if defined Print_Decoded_FrSky
                      Log.print("FrSky 5008: Battery2 Volts=");
                      Log.print(fr_bat_volts, 1);
@@ -1411,7 +1418,7 @@
 
     //===================================================================   
 
-    uint32_t FrSkyPort::bit32Unpack(uint32_t dword,uint8_t displ, uint8_t lth) {
+    uint32_t FrSkyPort::bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth) {
       uint32_t r = (dword & FrSkyPort::createMask(displ,(displ+lth-1))) >> displ;
       //  Log.print(" Result=");
       // Log.println(r);
@@ -1427,7 +1434,7 @@
       return r;
     }  
     //===================================================================    
-    uint16_t FrSkyPort::byt16Unpack(uint8_t posn){
+    uint16_t FrSkyPort::uint16Extract(uint8_t posn){
   
     //  The number starts at byte "posn" of the received packet and is two bytes long
     //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap
@@ -1442,7 +1449,7 @@
     }
     //===================================================================    
 
-    uint32_t FrSkyPort::byt32Unpack(uint8_t posn){
+    uint32_t FrSkyPort::uint32Extract(uint8_t posn){
   
     //  The number starts at byte "posn" of the received packet and is four bytes long.
     //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap

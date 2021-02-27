@@ -917,7 +917,7 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 3.6 * CHAR_H_PX;      
           display.setCursor(xx, yy);               
-          snprintf(snprintf_buf, snp_max, "%.1fV %.1fA %.1fAh", (float)FrPort.fr_bat_volts, (float)FrPort.fr_bat_amps, (float)FrPort.fr_bat_mAh / 1000);     
+          snprintf(snprintf_buf, snp_max, "%.0fV %.1fA %.1fAh", FrPort.fr_bat_volts * 0.1F, FrPort.fr_bat_amps * 0.1F, FrPort.fr_bat_mAh * 0.001F);     
           display.fillRect(xx, yy, SCR_W_PX, CHAR_H_PX, SCR_BACKGROUND); // clear the whole line  
           display.println(snprintf_buf); 
 

@@ -5,7 +5,7 @@
 // 
 #define MAJOR_VERSION      0
 #define MINOR_VERSION      0
-#define PATCH_LEVEL        1
+#define PATCH_LEVEL        2
 /*
 =================================================================================================== 
                                 M o s t    R e c e n t   C h a n g e s
@@ -58,7 +58,6 @@ Complete change log and debugging options are at the bottom of this tab
   #define FrSky_IO  0 
 #endif
 
-//#define Print_Decoded_FrSky
 #define Derive_PWM_Channels   // from fport control channel. just an interesting option at this juncture
 
 // NOTE: The Bluetooth class library uses a lot of SRAM application memory. During Compile/Flash
@@ -96,12 +95,12 @@ Complete change log and debugging options are at the bottom of this tab
 
 #define Start_WiFi                              // Start WiFi at startup, override startWiFi pin
 
-#define HostName             "MavToPass"        // This translator's host name
-#define APssid               "MavToPassthru"    // The AP SSID that we advertise         ====>
+#define HostName             "Frs2BT"           // This translator's host name
+#define APssid               "FrSkyToWiFi"      // The AP SSID that we advertise         ====>
 #define APpw                 "password"         // Change me! Must be >= 8 chars
 #define APchannel            9                  // The wifi channel to use for our AP
-#define STAssid              "OmegaOffice"      // Target AP to connect to (in STA mode) <====
-#define STApw                "Navara@98"         // Target AP password (in STA mode). Must be >= 8 chars      
+#define STAssid              "YourLAN"      // Target AP to connect to (in STA mode) <====
+#define STApw                "password"         // Target AP password (in STA mode). Must be >= 8 chars      
 
 // Choose one default mode for ESP only - AP means advertise as an access point (hotspot). STA means connect to a known host
 //#define WiFi_Mode   1  //AP            
@@ -117,8 +116,8 @@ Complete change log and debugging options are at the bottom of this tab
 
 int16_t  TCP_localPort = 5760;     
 uint16_t  TCP_remotePort = 5760;    
-uint16_t  UDP_localPort = 14555;    // readPort / MP and QGC expect to send to this default FC UDP port
-uint16_t  UDP_remotePort = 14550;   // sendPort / MP and QGC listens & reads on this default port 
+uint16_t  UDP_localPort = 14551;    // readPort 
+uint16_t  UDP_remotePort = 14556;   // sendPort
 
 //=================================================================================================
 //                            R  S  S  I    O  P  T  I  O  N  S  
@@ -986,26 +985,19 @@ bool daylightSaving = false;
 
  //#define Support_SBUS_Out 
 
-//#define Debug_Read_TCP
-//#define Debug_Read_UDP
 //#define Debug_Send_TCP
 //#define Debug_Send_UDP
 //#define Debug_Inject_Delay
 
-//#define MavLite_Debug_Scheduler
-//#define Debug_Mavlite 
-//#define Debug_Mavlite_Chunking
-//#define Debug_Mavlite_SPort
-//#define Mav_List_Params       // Use this to test uplink to Flight Controller 
 
 //#define Debug_FrPort_Stream 
-//#define Debug_FrPort_Stream_Out
+
 //#define Debug_FrPort_Safe_Read
 
 //#define Debug_FPort_Buffer 
-//#define Frs_Debug_Scheduler // - this debugger affects the performance of the scheduler when activated
 
-#define Debug_PWM_Channels
+//#define Print_Decoded_FrSky
+//#define Debug_PWM_Channels
 //=================================================================================================   
 //                                   C H A N G E   L O G
 //=================================================================================================
