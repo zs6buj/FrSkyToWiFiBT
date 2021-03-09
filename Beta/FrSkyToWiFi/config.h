@@ -15,7 +15,7 @@ Complete change log and debugging options are at the bottom of this tab
                                           
  v0.0.2               Added HUD display, bug fixes
  V0.0.3  2021-03-04   Hud rssi blank fix
-         2021-03-09   Serial-in, allways auto detect polarity, speed and protocol.
+         2021-03-09   Always auto detect uart polarity, speed and protocol.
                       Other small fixes.
                                                                  
 */
