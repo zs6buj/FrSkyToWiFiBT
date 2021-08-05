@@ -68,7 +68,6 @@ uint32_t  free_heap_millis = 0;
     typedef enum frport_type_set { f_none = 0, f_port1 = 1, f_port2 = 2, s_port = 3, f_auto = 4} frport_t; 
     typedef enum fr_io_set { fr_bt = 1 , fr_wifi = 2, fr_wifi_bt = 3, fr_none = 0} fr_io_t;     
     typedef enum wfmode_set { ap = 1 , sta = 2, sta_ap = 3 } wfmode_t; // sta_ap means sta failover to ap
-    typedef enum wf_proto_set { tcp = 1 , udp = 2, } wf_proto_t; 
     typedef enum btmode_set { master = 1, slave = 2 } btmode_t;
            
     typedef struct  {
@@ -76,15 +75,12 @@ uint32_t  free_heap_millis = 0;
       frport_t      frport;            // position 164 in EEPROM    
       fr_io_t       fr_io;  
       wfmode_t      wfmode;
-      wf_proto_t    wfproto;
       uint8_t       channel;
       char          apSSID[30];
       char          apPw[20];
       char          staSSID[30];
       char          staPw[20];
       char          host[20];     
-      uint16_t      tcp_localPort;
-      uint16_t      tcp_remotePort;     // 162 thru 163 in EEPROM   
       uint16_t      udp_localPort;
       uint16_t      udp_remotePort;
       btmode_t      btmode;
@@ -99,9 +95,7 @@ uint32_t  free_heap_millis = 0;
       char*         fr_io3;       // wifi_bt    
       char*         wfmode1;      // ap 
       char*         wfmode2;      // sta
-      char*         wfmode3;      // sta_ap         
-      char*         wfproto1; // tcp
-      char*         wfproto2; // udp       
+      char*         wfmode3;      // sta_ap              
       char*         btmode1;      // master
       char*         btmode2;      // slave 
       char*         rssioverride; //rssi override        

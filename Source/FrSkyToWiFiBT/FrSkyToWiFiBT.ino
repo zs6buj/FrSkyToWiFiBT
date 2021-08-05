@@ -40,12 +40,10 @@
 
 void main_loop();
 void ServiceWiFiRoutines();
-void ServiceInboundTCPClients();
 void CheckStaLinkStatus(); 
 void StartWiFiTimer();
 void RestartWiFiSta();
 void Start_Access_Point();
-bool NewOutboundTCPClient();
 void ServiceStatusLeds();
 void BlinkFrsLed(uint32_t);
 void DisplayRemoteIP();
@@ -94,7 +92,7 @@ void LogScreenPrint(String);
 #endif
 
 
-  FrSkyPort FrPort;   // instantiate FrSky Port object   
+  FrSkyPort myFrPort;   // instantiate FrSky Port object   
 
 
 
@@ -309,21 +307,9 @@ void setup()  {
      LogScreenPrintln("WiFi-mode=STA>AP");
    } 
     
-   if (set.wfproto == tcp)  {
-     Log.println("Protocol is TCP/IP");
-     LogScreenPrintln("Protocol=TCP/IP");
-   }
-   else if  (set.wfproto == udp) {
-     Log.print("Protocol is UDP");
-     LogScreenPrintln("Protocol = UDP");
-     #if defined UDP_Broadcast
-       Log.println(" Broadcast");
-       LogScreenPrintln(" Broadcast");
-     #else
-       Log.println(" IP-Targeted");     
-       LogScreenPrintln("IP-Targeted");
-     #endif
-   }
+   Log.println("Protocol is IP-Targeted UDP");
+   LogScreenPrintln("Protocol = UDP");
+
   }
 
 
@@ -363,8 +349,8 @@ void setup()  {
           LogScreenPrintln("BT done");
         }          
       } else {                               // slave, passive                           
-        SerialBT.begin(set.host);        
-        Log.printf("Bluetooth slave mode, host name for pairing is %s\n", set.host);               
+        SerialBT.begin(set.btConnectToSlave);        
+        Log.printf("Bluetooth slave mode, slave name for pairing is %s\n", set.btConnectToSlave);               
       } 
       btActive = true;    
     }
@@ -381,7 +367,7 @@ void setup()  {
 //                                    S E T U P   S E R I A L
 //=================================================================================================  
             
-  FrPort.initialise();
+  myFrPort.initialise(set.frport);
   
   #if ((defined ESP32) || (defined ESP8266)) && (defined Debug_SRAM)
     Log.printf("==============>Free Heap after Serial UART setup = %d\n", ESP.getFreeHeap());
@@ -418,7 +404,7 @@ void loop() {
   
  //====================        H a n d l e   F r S k y   P o r t   T r a f f i c
  
-  FrPort.HandleTraffic();  
+  myFrPort.HandleTraffic();  
 
   //===============   Check For Display Button Touch / Press
   

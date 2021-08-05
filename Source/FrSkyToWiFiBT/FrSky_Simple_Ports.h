@@ -23,15 +23,17 @@
   public: 
     float     fr_lat = 0;    // all moved to public for HUD info display
     float     fr_lon = 0;
-    float     fr_bat_volts;     
-    float     fr_bat_amps;
-    uint16_t  fr_bat_mAh;    
+    float     fr_bat1_volts;     
+    float     fr_bat1_amps;
+    uint16_t  fr_bat1_mAh;    
     uint8_t   fr_numsats;   
-    uint32_t  fr_rssi;    
+    uint32_t  fr_rssi;   
+    bool      gpsGood = false;
       
   private:
-    static const uint8_t timeout_secs = 5;
+    static const uint8_t timeout_secs = 8;  // FrSky port no traffic timeout
     
+    bool      ftgetBaud = true; 
     byte      chr = 0;
     byte      prev_chr = 0;    
     bool      fpInit = false; 
@@ -40,6 +42,13 @@
     bool      frPrev = false; 
     bool      pwmGood = false; 
     bool      pwmPrev = false;
+
+    bool      lonGood = false;
+    bool      latGood = false;
+    bool      altGood = false;
+    bool      hdgGood = false;
+    bool      hdopGood = false;
+        
     uint32_t  frGood_millis = 0;   
     uint32_t  serGood_millis = 0;  
     uint32_t  pwmGood_millis = 0;       
@@ -70,7 +79,7 @@
 
     bool      printcrcout = false;
     byte      nb, lb;                      // Nextbyte, Lastbyt of ByteStuff pair     
-  
+
     uint8_t   prevbyt=0;
 
     bool      frInvert = false;
@@ -132,17 +141,18 @@
 
     // 0x5002 GPS Status
     //uint8_t fr_numsats;     // moved to public for hud info display
-    uint8_t fr_gpsStatus;
+    
+    uint32_t fr_gps;  
+    uint8_t fr_gps_status;
     uint8_t fr_hdop;
-    uint8_t fr_vdop;
     uint32_t fr_gps_alt;
-    float   fr_fgps_alt;
+    //float   fr_fgps_alt;
     uint8_t neg;
 
     //0x5003 Batt
-    //float fr_bat_volts;     // moved to public for hud info display
-    //float fr_bat_amps;
-    //uint16_t fr_bat_mAh;
+    //float fr_bat1_volts;     // moved to public for hud info display
+    //float fr_bat1_amps;
+    //uint16_t fr_bat1_mAh;
 
     // 0x5004 Home
     uint16_t fr_home_dist;
@@ -182,13 +192,17 @@
     //uint32_t fr_rssi;   // moved to public for hud info display
 
 
-    // Member function declarations
+    // Member function prototypes
   public:  
-    void          initialise();   
+    void          initialise(frport_t frport_type);   
     void          HandleTraffic();
     void          ReportFrPortOnlineStatus();      
             
   private:  
+    pol_t         getPolarity(uint8_t rxpin); 
+    uint32_t      getBaud(uint8_t rxpin); 
+    uint32_t      getConsistent(uint8_t rxpin);
+    uint32_t      SenseUart(uint8_t  rxpin);            
     frport_t      Sense_FrPort(); 
     bool          FPort_Read_A_Frame(uint8_t *buf, frport_t  frport_type);  
     bool          SPort_Read_A_Frame(uint8_t *buf);           
@@ -198,7 +212,8 @@
     void          WriteByte(byte b);   
     void          SafeWrite(byte b, bool isPayload);
     void          ReportOnlineStatus(); 
-    bool          ParseFrame(uint8_t *buf, uint16_t lth);
+    bool          ParseFrame(uint8_t *buf, frport_t  frport_type, uint16_t lth); 
+    void          Frs_Decode(uint8_t *buf);     
     uint8_t       crcGet(uint8_t *buf, uint8_t lth);
     bool          crcGood(uint8_t *buf, uint8_t lth);                
     bool          BytesToPWM(uint8_t *buf, int16_t *ch, uint8_t lth); 
@@ -209,117 +224,145 @@
     void          WriteCrc(); 
     void          Print_PWM_Channels(int16_t *ch, uint16_t max_ch); 
     void          PrintBuffer(uint8_t *buf, uint8_t lth);   
+     void         PrintFrPeriod(bool LF);      
     void          CheckForTimeout();   
     void          ServiceStatusLed();
     void          BlinkFpLed(uint32_t period);
     bool          Send_WiFi_BT_Frame(); 
     #if (defined btBuiltin)    
       bool          Send_Bluetooth(uint8_t *buf, uint16_t len);   
-    #endif  
-    bool          Send_TCP(uint8_t *buf, uint16_t len);           
+    #endif         
     bool          Send_UDP(uint8_t *buf, uint16_t len);
-    void          DecodeFrsky();
+    uint32_t      TenToPwr(uint8_t pwr);    
     uint32_t      bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth);
-    uint16_t      uint16Extract(uint8_t posn);
-    uint32_t      uint32Extract(uint8_t posn); 
+    uint16_t      uint16Extract(uint8_t *buf, int posn);
+    uint32_t      uint32Extract(uint8_t *buf, int posn); 
     uint32_t      createMask(uint8_t lo, uint8_t hi);       
-            
+        
 }; // end of class
 
     // External member functions
     //===================================================================
 
-    void FrSkyPort::initialise()  {  
-    
-    if ( (set.frport == f_port1) || (set.frport == f_port2) ) {  // check for fport2 later
-      frBaud = 115200; 
-      frInvert = false;   // F.Port is normally idle high (not inverted)
-      Log.printf("FPort selected, expecting regular fport idle high, baud:%d", frBaud);     
-    } else 
-    if (set.frport == s_port) {
-      frBaud = 57600;
-      #if defined Inverted_Inverted_FrSky_Receiver_Pad // note S.Port is normally idle low (inverted)
-        frInvert = false;  
-        Log.printf("SPort selected, expecting inverted inverted/idle high, baud:%d", frBaud); 
-      #else
-        frInvert = true;  
-          Log.printf("SPort selected, now expecting regular sport inverted/idle low, baud:%d", frBaud);           
-      #endif  
-    }
-    
-    #if (defined ESP32) || (defined ESP8266) // ESP only
-      int8_t frRx;
-      int8_t frTx;
+    void FrSkyPort::initialise(frport_t  frport_type)  {  
+    //set.frport = s_port;
+    if (set.frport == f_auto) {
+      pol_t pol = (pol_t)getPolarity(fr_rxPin);
+      bool ftp = true;
+      static int8_t cdown = 30;     
+      while ( (pol == no_traffic) && (cdown) ){
+        if (ftp) {
+          Log.printf("No telem on rx pin:%d. Retrying ", fr_rxPin);
+          String s_rxPin=String(fr_rxPin);   // integer to string
+          LogScreenPrintln("No telem on rxpin:"+ s_rxPin); 
+          ftp = false;
+        }
+        Log.print(cdown); Log.print(" ");
+        pol = (pol_t)getPolarity(fr_rxPin);
+        delay(500);      
+        if (cdown-- == 1 ) {
+          Log.println();
+          Log.println("Auto sensing abandoned. Defaulting to S.Port");
+          LogScreenPrintln("Default to SPort!");
+          pol = idle_low;  
+          frport_type = set.frport = s_port;  
+          ftp = true;     
+        }
 
-      frRx = fr_rxPin;
-      frTx = fr_txPin;
-
-      #if ( (defined ESP8266) || ( (defined ESP32) && (defined ESP32_SoftwareSerial)) )
- 
-          Log.printf(" and is 1-wire simplex on rx pin = %d\n", frRx);
-
-          nbdelay(100);
-          frSerial.begin(frBaud, SWSERIAL_8N1, frRx, frTx, frInvert);     // SoftwareSerial
-          nbdelay(100);
-          Log.println("Using SoftwareSerial for F.Port");
-
-      #else  // HardwareSerial
-          frSerial.begin(frBaud, SERIAL_8N1, frRx, frTx, frInvert);                     
-          Log.printf(" simplex on rx pin = %d\n", frRx);
-
-   
-      #endif
-    #endif
-    
+      }
+      if (!ftp) Log.println();
       
+      if (pol == idle_low) {
+        frInvert = true;
+        Log.printf("Serial port rx pin %d is IDLE_LOW, inverting rx polarity\n", fr_rxPin);
+      } else {
+        frInvert = false;
+        Log.printf("Serial port rx pin %d is IDLE_HIGH, regular rx polarity retained\n", fr_rxPin);        
+      }
+      
+      if (set.frport == f_auto) {
+        frBaud = getBaud(fr_rxPin);
+        Log.print("Baud rate detected is ");  Log.print(frBaud); Log.println(" b/s"); 
+        String s_baud=String(frBaud);   // integer to string. "String" overloaded
+        LogScreenPrintln("Telem at "+ s_baud);  
+      }
+    } 
+    
+    if (set.frport == s_port) {
+        frInvert = true;
+        frBaud = 57600;  
+        Log.printf("Default S.Port on rxpin:%d is IDLE_LOW, inverting rx polarity\n", fr_rxPin);  
+        Log.printf("Default S.Port baud:%d b/s\n", frBaud);           
+    } 
+    if ( (set.frport == f_port1) && (set.frport == f_port2) ) {  
+        frInvert = false;
+        frBaud = 115200; 
+        Log.printf("Default F.Port on rxpin:%d is IDLE_HIGH, regular rx polarity retained\n", fr_rxPin);   
+        Log.printf("Default F.Port baud :%d b/s\n", frBaud);               
+    }              
+
+      #if (defined ESP32) || (defined ESP8266) // ESP only
+        int8_t frRx;
+        int8_t frTx;
+
+        frRx = fr_rxPin;
+        frTx = fr_txPin;
+        delay(100);
+        #if ( (defined ESP8266) || ( (defined ESP32) && (defined ESP32_SoftwareSerial)) )
+            frSerial.begin(frBaud, SWSERIAL_8N1, frRx, frTx, frInvert);     // SoftwareSerial
+            Log.println("Using SoftwareSerial for F.Port");
+        #else  // HardwareSerial
+          // waits here for a few seconds timeout if no telemetry present
+          frSerial.begin(frBaud, SERIAL_8N1, frRx, frTx, frInvert);                     
+        #endif
+        delay(10);
+      #endif
+   
     } // end of member function
 
     //===================================================================
     void FrSkyPort::HandleTraffic() {  
-       
-      if (frport_type == f_none) {   // detect FrPort Type
-        if (set.frport == s_port) {
-          frport_type = s_port;      //  convenient to use eeprom setting because sport has different baud rate
-        } else {
-       frport_type = Sense_FrPort();            
-        }  
-      } else {
-         
-      static bool ft = true;
-      if (ft) {
-         if (frport_type == s_port) {
-           Log.println("SPort detected");         
-         } else
-         Log.printf("FrPort V%d detected\n",  frport_type); 
-        ft = false; 
-      }
 
-      if ( (frport_type == f_port1) || (frport_type == f_port2) ) { 
-        if ( FPort_Read_A_Frame(&FrSkyPort::frbuf[0], frport_type) ) {
-          FrSkyPort::DecodeFrsky();     
-          FrSkyPort::Send_WiFi_BT_Frame();
-        }
- 
-      } else  
-      if (set.frport == s_port) {  
+      if (frport_type == f_none) {
+        if (set.frport== f_auto) {     
+          frport_type = Sense_FrPort();         
+          if (frport_type == s_port) {
+            Log.println("SPort detected");         
+          } else
+          if (frport_type == f_port1) {        
+            Log.println("FPort1 detected");   
+          } else
+          if (frport_type == f_port2) {        
+            Log.println("FPort2 detected");   
+          }
+        } else {
+          frport_type = set.frport;
+        } 
+      }
+       
+      if (frport_type == s_port) {  
         if ( SPort_Read_A_Frame(&FrSkyPort::frbuf[0]) ) {
-          #if (defined Debug_FPort_Buffer) 
+          #if (defined Debug_FrPort_Buffer) 
              Log.print("Good FrSky Frame Read: ");
              FrSkyPort::PrintBuffer(frbuf, 10);
           #endif           
-          FrSkyPort::DecodeFrsky();
+          FrSkyPort::Frs_Decode(&frbuf[2]); 
           FrSkyPort::Send_WiFi_BT_Frame();
         }
-      }  
-     }
-  
+      }  else
+      if ( (frport_type == f_port1) || (frport_type == f_port2) ) { 
+        if ( FPort_Read_A_Frame(&FrSkyPort::frbuf[0], frport_type) ) {
+          FrSkyPort::Frs_Decode(&frbuf[2]);             
+          FrSkyPort::Send_WiFi_BT_Frame();
+        }
+      }
+        
       FrSkyPort::CheckForTimeout();
-
     }
-
+  
      //===================================================================  
+          
     frport_t FrSkyPort::Sense_FrPort() {
-
       FrSkyPort::setMode(rx);
       lth=frSerial.available();  
       if (lth < 10) {
@@ -328,7 +371,6 @@
         }
         return f_none;       // prevent 'wait-on-read' blocking
       }
-      
       static int8_t   sp = 0;   
       static int8_t   fp1 = 0; 
       static int8_t   fp2 = 0;  
@@ -366,6 +408,61 @@
 
     }    
     //===================================================================
+ 
+    bool FrSkyPort::SPort_Read_A_Frame(uint8_t *buf) {
+
+      static uint8_t i = 0;
+      byte b;
+      
+      #if defined Report_Packetloss
+       uint32_t period = (Report_Packetloss * 60000);
+       if (millis() - packetloss_millis > period) {
+         packetloss_millis = millis();
+         float packetloss = float(float(badFrames * 100) / float(goodFrames + badFrames));
+         Log.printf("S.Port goodFrames:%d   badFrames:%d   frame loss:%.3f%%\n", goodFrames, badFrames, packetloss);
+       }      
+      #endif  
+  
+      delay(1);            // I am important!
+      
+      while (frSerial.available()) {
+    
+        if (b == 0x7E) {  // end of frame parse
+          if (i == 3) {
+            memset(&buf[2], 0x00, fr_max-2); // clear the rest
+          }
+          //Log.printf("0x7E found  i:%d  ", i);   PrintBuffer(buf, 10);
+          buf[0] = b;
+          i = 1;  
+          if (buf[1] == 0x1b) {   // our DIY sensor)
+            //Log.printf("0x1B found, buf[2]:%X ", buf[2]);                 
+          }
+          if (buf[2] == 0x10) {
+            if (buf[9] == (0xFF-crcin)){  // Test CRC
+              frGood = true;            
+              frGood_millis = millis();  
+              goodFrames++;               
+              crcin = 0;
+              return true;              // RETURN
+            } else {
+              badFrames++;              
+              //Log.print(" CRC Bad!: ");          
+            }
+          }
+          crcin = 0;
+        }  // end of b == 0x7E
+         
+        b = SafeRead();
+        //Printbyte(b, true, ','); Log.printf(":i[%d] ", i);
+        if (b != 0x7E) {  // if next start/stop don't put it in the buffer
+          if ((i > 1) && (i < 9))  crcStepIn(b);           
+        }
+        buf[i] = b;              
+        if (i<fr_max-1) i++;          
+      }
+      return false;     
+    }
+    //===================================================================
     
     bool FrSkyPort::FPort_Read_A_Frame(uint8_t *buf, frport_t  frport_type) {
       /*
@@ -374,8 +471,7 @@
        We are a slave, and default to receiving status      
        Slave responds with uplink frame immediately if matching ID received
       */
-      
-      FrSkyPort::setMode(rx);
+
       lth=frSerial.available();  
       if (lth < 10) {
         if (lth > 0) {
@@ -386,48 +482,43 @@
           
       #if defined Report_Packetloss
         uint32_t period = (Report_Packetloss * 60000);
-        if (millis() - FrSkyPort::packetloss_millis > period) {
-          FrSkyPort::packetloss_millis = millis();
-          float packetloss = float(float(FrSkyPort::badFrames * 100) / float(FrSkyPort::goodFrames + FrSkyPort::badFrames));
-          Log.printf("goodFrames:%d   badFrames:%d   frame loss:%.3f%%\n", FrSkyPort::goodFrames, FrSkyPort::badFrames, packetloss);
+        if (millis() - packetloss_millis > period) {
+          packetloss_millis = millis();
+          float packetloss = float(float(badFrames * 100) / float(goodFrames + badFrames));
+          Log.printf("F.Port goodFrames:%d   badFrames:%d   frame loss:%.3f%%\n", goodFrames, badFrames, packetloss);
         }
       #endif
-  
-      #if defined Debug_FrPort_Serial_Loop
-        while(true) {            // loop here forever - debugging only
-          FrSkyPort::chr = FrSkyPort::ReadByte();  
-        }
-      #endif  
 
-
+      // ======================= F.Port1 ==========================
+      
       if (frport_type == f_port1) {           // find start of frame 
-        while (!(FrSkyPort::chr==0x7E)) {     // find first 0x7E, should be start, but could be previous stop
-          FrSkyPort::chr = FrSkyPort::ReadByte();
+        while (!(chr==0x7E)) {     // find first 0x7E, should be start, but could be previous stop
+          chr = ReadByte();
         }
-        FrSkyPort::frbuf[0] = FrSkyPort::chr;
-        FrSkyPort::chr = FrSkyPort::ReadByte();    // could be start 0x7E or len 0x08, 0x0D, 0x18, 0x20, 0x23  
-        while (FrSkyPort::chr == 0x7E) {           // if start 0x7E, then the first one was a stop so ignore it
-          *buf = FrSkyPort::chr;
-          FrSkyPort::chr = FrSkyPort::ReadByte();
+        buf[0] = chr;
+        chr = ReadByte();    // could be start 0x7E or len 0x08, 0x0D, 0x18, 0x20, 0x23  
+        while (chr == 0x7E) {           // if start 0x7E, then the first one was a stop so ignore it
+          *buf = chr;
+          chr = ReadByte();
         }
-        fr_lth = *(buf+1) = FrSkyPort::chr;                  // lth
-        fr_type = *(buf+2) = FrSkyPort::ReadByte();          // frame_type  
+        fr_lth = *(buf+1) = chr;                  // lth
+        fr_type = *(buf+2) = ReadByte();          // frame_type  
         
         if ((fr_lth == 0x08) || (fr_lth == 0x19) ) {  // downlink or control frame
-          FrSkyPort::frGood = true;            
-          FrSkyPort::frGood_millis = millis();  
+          frGood = true;            
+          frGood_millis = millis();  
   
           switch(fr_type){
             case 0x00:      // F.Port v1.0 Control Frame (RC Channels)
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth);
-              if (FrSkyPort::parseGood) {
+              parseGood = ParseFrame(buf, frport_type, fr_lth);
+              if (parseGood) {
                 #if defined Derive_PWM_Channesl           
-                  FrSkyPort::pwmGood = FrSkyPort::BytesToPWM(buf+3, &FrSkyPort::pwm_ch[0], fr_lth);
-                  if (FrSkyPort::pwmGood) {
+                  pwmGood = BytesToPWM(buf+3, &pwm_ch[0], fr_lth);
+                  if (pwmGood) {
                     #if defined Debug_PWM_Channels
-                      FrSkyPort::Print_PWM_Channels(&FrSkyPort::pwm_ch[0], num_of_channels);
+                      Print_PWM_Channels(&pwm_ch[0], num_of_channels);
                     #endif  
-                    FrSkyPort::pwmGood_millis = millis();
+                    pwmGood_millis = millis();
                   }
                 #endif  
                 #if defined Support_SBUS_Out 
@@ -437,8 +528,8 @@
               return false;
   
             case 0x01:      // F.Port v1.0 downlink frame from master  -  match on our sensor byte ( range 0x0~0x1B or 0x1E (FC) )              
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth); 
-              if (FrSkyPort::parseGood) {    
+              parseGood = ParseFrame(buf, frport_type, fr_lth); 
+              if (parseGood) {    
                 fr_prime = buf[3];                         // if prime == 0x00, reply prime = 0x00
                                                            // if prime == 0x10, reply prime = 0x10 (slave ready)                                                       
                 return true;  
@@ -446,8 +537,8 @@
               return false;  
               
             case 0x0D:   // mavlite downlink frame from master, match on sensor id 0x0D                          
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth); 
-              if (FrSkyPort::parseGood) {
+              parseGood = ParseFrame(buf,  frport_type, fr_lth); 
+              if (parseGood) {
                 fr_prime = buf[3];                         // should be 0x30                                                                                                              
                 // Mavlite   do something
                 return false;      
@@ -459,11 +550,13 @@
               return false;     
           }       // end of switch   
         } else {  // end of length ok
-          badFrames++; // due to fail length test
-          // Log.printf("Bad FPort frame length = %X\n", fr_lth); 
+          badFrames++; // frame length error due to fail length test
+          //Log.printf("Bad FPort frame length = %X\n", fr_lth); 
           return false; 
         }     
       }          // end of FPort1
+
+      // ======================= F.Port2 ==========================
       
       if (frport_type == f_port2) {                // find start of frame
         bool ctl = false;
@@ -471,32 +564,36 @@
         bool dlink = false;
         while ( (!(ctl)) && (!(ota)) && (!(dlink)) ) {     // find valid lth + type combo
           prev_chr = chr;
-          FrSkyPort::chr = FrSkyPort::ReadByte();
+          chr = ReadByte();
           ctl = (((prev_chr == 0x0D) || (prev_chr == 0x18)|| (prev_chr == 0x23)) && (chr == 0xFF)); 
           ota = (((prev_chr == 0x0D) || (prev_chr == 0x18)|| (prev_chr == 0x23)) && (chr == 0xF1)); 
           dlink = ((prev_chr == 0x08)  && (chr == 0x1B));         
-        }      
+        }  
+            
         *(buf) = 0;                     // not used for fp2
-        fr_lth = *(buf+1) = prev_chr;   // lth
+        fr_lth = *(buf+1) = prev_chr;   // lth 
         fr_type = *(buf+2) = chr;       // frame_type 
-          
+                                        
         if ((fr_lth == 0x08) || (fr_lth == 0x0d) || (fr_lth == 0x18) || (fr_lth == 0x20) ) {  // 
-          FrSkyPort::frGood = true;            
-          FrSkyPort::frGood_millis = millis();  
+          frGood = true;            
+          frGood_millis = millis();  
+          //Log.printf("fr_lth:%d   fr_type:%X\n", fr_lth, fr_type);   
+    
           switch(fr_type){
             
             case 0x0D:   // mavlite downlink frame from master, match on sensor id 0x0D            
                
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth); 
-              if (FrSkyPort::parseGood) {
+              parseGood = ParseFrame(buf+1,  frport_type, fr_lth); 
+              if (parseGood) {
                 fr_prime = buf[3];                         // should be 0x30                                                                                                              
-                return false;  // ignore mavlit for now
+                return false;  // ignore mavlite for now
               }
               return false; 
                     
-            case 0x1B:   // F.Port v2.3.7 downlink frame from master, match on sensor id 0x0~0x1B or 0x1E (FC)                       
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth); 
-              if (FrSkyPort::parseGood) {
+            case 0x1B:   // F.Port v2.3.7 downlink frame from master, match on sensor id 0x0~0x1B or 0x1E (FC)                     
+              parseGood = ParseFrame(buf,  frport_type, fr_lth); // + CRC
+              //printf("fr:type:%X parseGood:%d=================<\n", fr_type, parseGood);
+              if (parseGood) {
                 fr_prime = buf[3];                         // if prime == 0x00, reply prime = 0x00
                                                            // if prime == 0x10, reply prime = 0x10 (slave ready)                                                                                                                 
                return true; 
@@ -504,15 +601,16 @@
               return false;
 
             case 0xff:      // F.Port v2.3.7 Control Frame (RC Channels)  
-              FrSkyPort::parseGood = FrSkyPort::ParseFrame(buf, fr_lth);             
-              if (FrSkyPort::parseGood) {
+              parseGood = ParseFrame(buf,  frport_type, fr_lth+1); // + CRC
+              //printf("fr:type:%X parseGood:%d\n", fr_type, parseGood);              
+              if (parseGood) {
                 #if defined Derive_PWM_Channesl           
-                  FrSkyPort::pwmGood = FrSkyPort::BytesToPWM(buf+3, &FrSkyPort::pwm_ch[0], fr_lth);
-                  if (FrSkyPort::pwmGood) {
+                  pwmGood = BytesToPWM(buf+3, &pwm_ch[0], fr_lth);
+                  if (pwmGood) {
                     #if defined Debug_PWM_Channels
-                      FrSkyPort::Print_PWM_Channels(&FrSkyPort::pwm_ch[0], num_of_channels);
+                      Print_PWM_Channels(&pwm_ch[0], num_of_channels);
                     #endif  
-                    FrSkyPort::pwmGood_millis = millis();
+                    pwmGood_millis = millis();
                   }
                 #endif  
                 #if defined Support_SBUS_Out      
@@ -542,73 +640,33 @@
       // No start/stop 
 
     }
-       //===================================================================
-    
-    bool FrSkyPort::SPort_Read_A_Frame(uint8_t *buf) {
 
-      static uint8_t i = 0;
-      byte b;
-      
-      while (Serial1.available()) {
-    
-        if (b == 0x7E) {  // end of frame parse
-          if (i == 2) {
-            memset(&buf[2], 0x00, 8); // clear the rest
-          }
-          buf[0] = b;
-          i = 1;                 
-          if (buf[2] == 0x10) {
-            if (buf[9] == (0xFF-crcin)){
-              frGood = true;            
-              frGood_millis = millis();  
-              goodFrames++;               
-              crcin = 0;
-              return true;              // RETURN
-            } else {
-              badFrames++;              
-              //Log.print(" CRC Bad!: "); 
-           
-            }
-          }
-          crcin = 0;
-        }  // end of b == 0x7E
-         
-        b = SafeRead();
-        if (b != 0x7E) {  // if next start/stop don't put it in the buffer
-            if ((i > 1) && (i < 9))  crcStepIn(b);   
-            buf[i] = b;              
-            if (i<fr_max-1) i++;          
-        }
-      }
-      return false;     
-    }
     //===================================================================   
  
-    bool FrSkyPort::ParseFrame(uint8_t *buf, uint16_t lth) {
+    bool FrSkyPort::ParseFrame(uint8_t *buf, frport_t  frport_type, uint16_t lth) {
       //Log.printf("buf[0]:%X  buf[1]:%X  buf[2]:%X\n", buf[0], buf[1], buf[2]);
+      uint8_t crc_lo, crc_hi;
+         
       int i = 0;
-      for (i = 3 ; i < lth+2 ; i++) {         // payload after start byte[0], lth[1] and type[2], 
-        chr = FrSkyPort::SafeRead();          // f_port2 ignores start byte[0]
-      //  if (*(buf+2) == 0x1b) Log.printf("i:%d  chr:%X\n", i, chr);
+      for (i = 3 ; i < lth+2 ; i++) {        
+        chr = SafeRead();          // f_port2 ignores start byte[0]
+        //if (*(buf+2) == 0x1b) Log.printf("i:%d  chr:%X\n", i, chr);
         *(buf+i) = chr;
       }
       
-       chr = FrSkyPort::SafeRead();           // this is the crc byte
-       *(buf+i) = chr;
-
-       // FrSkyPort::crcEnd(&crcin);        
+       chr = SafeRead();           // this is the crc byte
+       *(buf+i) = chr;      
        
-      #if (defined Debug_FPort_Buffer) 
-        FrSkyPort::PrintBuffer(buf, lth);
+      #if (defined Debug_FrPort_Buffer) 
+        PrintBuffer(buf, lth+4);
       #endif 
 
       bool mycrcGood =  0; 
       if (frport_type == f_port1) {
-        mycrcGood =  FrSkyPort::crcGood(buf+1, lth+1); 
-
-      }
+        mycrcGood =  crcGood(buf+1, lth+1); // CRC range set here, include len
+      } else
       if (frport_type == f_port2) {
-        mycrcGood =  FrSkyPort::crcGood(buf+2, lth);  
+        mycrcGood =  crcGood(buf+2, lth);  // CRC range set here, exclude len
       //    Log.printf("mycrcGood:%d\n", mycrcGood);       
       }
       
@@ -622,8 +680,9 @@
       #endif  
       return mycrcGood;   
    
-    }     
- 
+    }  
+
+
     //===================================================================
       
     void FrSkyPort::setMode(PortMode mode) {   
@@ -881,10 +940,10 @@
 
           msgSent = Send_Bluetooth(&frbuf[0], 10);
 
-          #ifdef  Debug_Frs_Down
+          #ifdef  Debug_Send_BT_Frs
             if (msgSent) {
               Log.println("Sent by Bluetooth:");  
-              PrintBuffer(&frbuf, 10);
+              PrintBuffer(&frbuf[0], 10);
             }
           #endif
         }
@@ -893,29 +952,9 @@
       if ((set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt)) { //  WiFi
       
         if (wifiSuGood) {       
-          if (set.wfproto == tcp)  { // TCP      
-            for (int i = 1 ; i < max_clients ; ++i) {       // send to each active client. Not to inbound client [0] (FC side)
-              if (NULL != tcp_client[i]) {        // if active client
-                active_client_idx = i;
-                           
-                prev_millis = millis();
-                           
-                msgSent = Send_TCP(&frbuf[0], 10);  // to downlink
-                
-                if ((millis() -  prev_millis) > 4) {
-                  PrintFrPeriod(false);  Log.println(" TCP Write timeout =====================================>");  
-                }
-              
-                #ifdef  Debug_Frs_Down
-                  if (msgSent) {
-                    Log.printf("Sent to client %d by WiFi TCP\n", active_client_idx+1);  
-                  }
-                #endif
-              }
-            }    
-          }
+
         
-          if (set.wfproto == udp)  { // UDP     
+           // UDP     
   
             udp_read_port = set.udp_localPort;  
             udp_send_port = set.udp_remotePort;                       
@@ -937,13 +976,13 @@
 
                   #if (defined Debug_Frs_Down) || (defined Debug_Send_UDP_Frs)
                     Log.print("Sent by WiFi UDP: msgSent="); Log.println(msgSent);
-                    PrintBuffer(&frbuf, 10);
+                    FrSkyPort::PrintBuffer(&frbuf[0], 10);
                   #endif                          
                 }
              }  
            #endif  
   
-          }                                                                     
+                                                                   
         }  
       }
      }
@@ -956,6 +995,7 @@
       bool FrSkyPort::Send_Bluetooth(uint8_t *buf, uint16_t len) {
 
         bool msgSent = false;   
+       // Log.printf("BT has client : %u\n", SerialBT.hasClient()); 
         if (SerialBT.hasClient()) {
           size_t sent = SerialBT.write(buf,len);
           if (sent == len) {
@@ -966,50 +1006,533 @@
         return msgSent;
       }
     #endif
-    //===================================================================   
 
-      bool FrSkyPort::Send_TCP(uint8_t *buf, uint16_t len) {
-      if ( (!wifiSuGood) || ((!inbound_clientGood) && (!outbound_clientGood)) ) return false; 
-        bool msgSent = false;
-    
-        size_t sent =  tcp_client[active_client_idx]->write(buf,len);  
 
-        if (sent == len) {
-          msgSent = true;
-          link_status.packets_sent++;
-        }
-
-        return msgSent;
-      }
-
-    //===================================================================   
+   //===================================================================   
 
     bool FrSkyPort::Send_UDP(uint8_t *buf, uint16_t len) {
-      if (!wifiSuGood) return false;  
-
-      // 2 possible udp objects, STA [0]  and  AP [1] 
-        
+      if (!wifiSuGood) return false;     
       bool msgSent = false;
 
-      udp_object[active_object_idx]->beginPacket(UDP_remoteIP, udp_send_port);  
+      frs_udp_object.beginPacket(UDP_remoteIP, udp_send_port);  
     
-      size_t sent = udp_object[active_object_idx]->write(buf,len);
+      size_t sent = frs_udp_object.write(buf,len);
       
-      #if (defined Debug_FPort_Buffer) 
+      #if (defined Debug_FrPort_Buffer) 
         Log.print("Send_UDP buffer: ");
         FrSkyPort::PrintBuffer(buf, 10);
       #endif   
       if (sent == len) {
         msgSent = true;
         link_status.packets_sent++;
-        udp_object[active_object_idx]->flush();
+        frs_udp_object.flush();
       }
 
-      bool endOK = udp_object[active_object_idx]->endPacket();
+      bool endOK = frs_udp_object.endPacket();
       //   if (!endOK) Log.printf("msgSent=%d   endOK=%d\n", msgSent, endOK);
       return msgSent;
     }
+
+    //===================================================================  
+
+    void FrSkyPort::Frs_Decode(uint8_t *buf) {
+    // Do the sensor packets according to appID
+        static uint16_t prev_appID;
+        
+        uint16_t appID = uint16Extract(buf, 1 );
+        fr_payload = uint32Extract(buf, 3);
+        //Log.printf("appID:%4X\n", appID);
+        switch(appID) {
+
+                 case 0x800:                      // Latitude and Longitude
+                 
+                   fr_latlong= uint32Extract(buf, 3); 
+                   ms2bits = fr_latlong >> 30;
+                   fr_latlong = fr_latlong & 0x3fffffff; // remove ms2bits
+                   #if defined Debug_All     
+                     Log.print(" ms2bits=");
+                     Log.println(ms2bits);
+                   #endif   
+                   switch(ms2bits) {
+                     case 0:   // Latitude Positive
+                       fr_lat = fr_latlong;     // lon always comes first   
+                       cur.lat = (float)(fr_lat / 6E5);     // lon always comes first                                           
+                       #if defined Debug_All || defined Debug_FrSky_Messages  
+                         PrintFrPeriod(0);               
+                         Log.print(" FrSky 0x800 latitude=");
+                         Log.println(cur.lat,7);
+                       #endif
+                       latGood=true;
+                       break;
+                     case 1:   // Latitude Negative 
+                       fr_lat = fr_latlong;                         
+                       cur.lat = (float)(0-(fr_lat / 6E5)); 
+                       #if defined Debug_All || defined Debug_FrSky_Messages
+                         PrintFrPeriod(0);           
+                         Log.print(" FrSky 0x800 latitude=");
+                         Log.println(cur.lat,7);  
+                       #endif   
+
+                       if (!(cur.lat==0.000000) && !(cur.lon==0.000000)){
+                         latGood=true;                       
+                       }
+                       break;
+                     case 2:   // Longitude Positive
+                       fr_lon = fr_latlong;    
+                       cur.lon = (float)(fr_lon / 6E5);                                         
+                       #if defined Debug_All || defined Debug_FrSky_Messages   
+                         PrintFrPeriod(0);
+                         Log.print(" FrSky 0x800 longitude=");
+                         Log.println(cur.lon,7); 
+                       #endif                       
+                       lonGood=true;                   
+                       break;
+                     case 3:   // Longitude Negative
+                       fr_lon = fr_latlong; 
+                       cur.lon = (float)(0-(fr_lon / 6E5));                         
+                       #if defined Debug_All    
+                         PrintFrPeriod(0);                    
+                         Log.print(" FrSky 0x800 longitude=");
+                         Log.println(cur.lon,7); 
+                       #endif                   
+                       lonGood=true;                     
+                       break;
+                    }
+                    break;
+  
+                 //   Mavlink Passthrough Protocol below    
+                 //===================================================================
+                 case 0xF000:   
+                   break;
+                 case 0xF101:                        // RSSI  
+                   fr_rssi = fr_payload;
+                   #if defined Debug_FrSky
+                     PrintFrPeriod(0);
+                     Log.print(" FrSky F101: RSSI=");
+                     Log.println(fr_rssi);
+                   #endif  
+                   break;
+                 case 0xF103:   
+                   break;
+                 case 0xF104:   
+                   break;
+                 case 0xF105:   
+                   break;                 
+                  case 0x5002:
+                  
+                  // GPS Status &  fr_gps_alt
+                    fr_gps = uint32Extract(buf, 3);
+                    fr_numsats = bit32Extract(fr_gps, 0, 4);
+                    fr_gps_status = bit32Extract(fr_gps, 4, 2) + bit32Extract(fr_gps, 14, 2);
+                    fr_hdop = bit32Extract(fr_gps, 7, 7) * TenToPwr(bit32Extract(fr_gps, 6, 1));  
+                    fr_gps_alt = bit32Extract(fr_gps,24,7) * TenToPwr(bit32Extract(fr_gps,22,2)); //-- dm                                    
+                    cur.alt  = (float)(fr_gps_alt) / 10;
+                    neg = bit32Extract(fr_gps, 31, 1);
+                    if (neg==1) cur.alt = 0 - cur.alt;
+                    hdopGood=(fr_hdop>=3) && (fr_numsats>10);
+                    #if defined Debug_All || defined Debug_FrSky_Messages 
+                      PrintFrPeriod(0);
+                      Log.print(" FrSky 0x5002 Num sats=");
+                      Log.print(fr_numsats);
+                      Log.print(" gpsStatus=");
+                      Log.print(fr_gps_status);                
+                      Log.print(" HDOP=");
+                      Log.print(fr_hdop);                    
+                      Log.print(" fr_gps_alt=");
+                      Log.print(cur.alt, 1);
+                      Log.print(" hdopGood=");
+                      Log.print(hdopGood);                      
+                      Log.print(" neg=");
+                      Log.println(neg);   
+                    #endif
+
+                    break;
+                    
+                  case 0x5003:                         // Battery 1 Hz
+                   FrSkyPort::fr_bat1_volts = (float)(bit32Extract(fr_payload,0,9));  // dv -> V
+                   //Log.printf("mantissa:%d  10exponent:%d mutiplier:%d \n", bit32Extract(fr_payload,10,7), bit32Extract(fr_payload,9,1), TenToPwr(bit32Extract(fr_payload,9,1)) );
+                   FrSkyPort::fr_bat1_amps = (bit32Extract(fr_payload,10,7) * TenToPwr(bit32Extract(fr_payload,9,1) ) );  // rounded to nearest whole A
+                   FrSkyPort::fr_bat1_mAh = bit32Extract(fr_payload,17,15);
+                   FrSkyPort::fr_bat1_amps *= 10;  // prep_number() divided by 10 to get A, but we want dA for consistency
+                   #if defined Debug_FrSky
+                     PrintFrPeriod(0);
+                     Log.print(" FrSky 5003: Battery Volts=");
+                     Log.print(fr_bat1_volts, 1);
+                     Log.print("  Battery Amps=");
+                     Log.print((float)fr_bat1_amps, 0);
+                     Log.print("  Battery mAh=");
+                     Log.println(fr_bat1_mAh); 
+                   #endif       
+                   break;                          
+                   
+                  case 0x5004:                         // Home
+                    fr_home_dist = bit32Extract(fr_payload,2,10) * TenToPwr(bit32Extract(fr_payload,0,2));                   
+                    fr_fhome_dist = (float)fr_home_dist * 0.1;  // Not used here 
+                    cur.alt = bit32Extract(fr_payload,14,10) * TenToPwr(bit32Extract(fr_payload,12,2)); // decimetres
+                    if (bit32Extract(fr_payload,24,1) == 1) 
+                      cur.alt = cur.alt * -1;
+                    altGood=true; 
+                    #if defined Debug_All || defined Debug_FrSky_Messages
+                      PrintFrPeriod(0);
+                      Log.print(" FrSky 0x5004 Dist to home=");
+                      Log.print(fr_fhome_dist, 1);             
+                      Log.print(" Rel Alt=");
+                      Log.println(cur.alt,1);
+                    #endif
+                    break;
+                      
+                  case 0x5005:                      
+                  // Vert and Horiz Velocity and Yaw angle (Heading)     
+                    fr_velyaw = fr_home_dist = bit32Extract(fr_payload, 16, 11);
+                    cur.hdg = fr_velyaw * 0.1F;
+      
+                    hdgGood=true;
+                    #if defined Debug_All || defined Debug_FrSky_Messages
+                      PrintFrPeriod(0);
+                      Log.print(" FrSky 0x5005 Heading=");
+                      Log.println(cur.hdg,1);
+                    #endif
+                    break;   
+                 case 0x5006:                         // Roll, Pitch and Range - Max Hz      
+                   fr_roll = bit32Extract(fr_payload,0,11);        
+                   fr_roll = (fr_roll - 900) * 0.2;             //  -- roll [0,1800] ==> [-180,180] 
+                   fr_pitch = bit32Extract(fr_payload,11,10);   
+                   fr_pitch = (fr_pitch - 450) * 0.2;           //  -- pitch [0,900] ==> [-90,90]
+                   fr_range = bit32Extract(fr_payload,22,10) * TenToPwr(bit32Extract(fr_payload,21,1));
+
+                   AT_5006_flag = true;
+                   #if defined Debug_FrSky_Messages
+                     PrintFrPeriod(0);                  
+                     //if (appID == prev_appID) break; 
+                     Log.print(" Frsky 5006: Range=");
+                     Log.print(fr_range,2);
+                     Log.print(" Roll=");
+                     Log.print(fr_roll);
+                     Log.print("deg   Pitch=");
+                     Log.print(fr_pitch);   
+                     Log.println("deg");   
+                                 
+                   #endif
+                   break;                                         
+                 case 0x5007:                         // Parameters
+                   fr_param_id = bit32Extract(fr_payload,24,4);
+                   fr_param_val = bit32Extract(fr_payload,0,24);
+                   if (fr_param_id == 1) {
+                     fr_frame_type = fr_param_val;
+                     Param_50071_flag = true;
+                     #if defined Debug_FrSky_Messages
+                       PrintFrPeriod(0);
+                       Log.print("Frsky 5007: Frame_type=");
+                       Log.println(fr_frame_type);
+                     #endif  
+                   }
+                   else if (fr_param_id == 2) {
+                     fr_fs_bat_volts = fr_param_val;
+                     Param_50072_flag = true;
+                     #if defined Debug_FrSky_Messages
+                       PrintFrPeriod(0);
+                       Log.print("Frsky 5007: Bat failsafe volts=");
+                       Log.println(fr_fs_bat_volts);
+                     #endif  
+                   }
+                   else if (fr_param_id == 3) {
+                     fr_fs_bat_mAh = fr_param_val;
+                     Param_50073_flag = true;
+                     #if defined Debug_FrSky_Messages
+                       PrintFrPeriod(0);
+                       Log.print("Frsky 5007: Bat failsafe mAh=");
+                       Log.println(fr_fs_bat_mAh);  
+                     #endif         
+                   }
+                   else if (fr_param_id== 4) {
+                     fr_bat1_capacity = fr_param_val;
+                     Param_50074_flag = true;
+                     #if defined Debug_FrSky_Messages
+                       PrintFrPeriod(0);
+                       Log.print("Frsky 5007: Bat1 capacity=");
+                       Log.println(fr_bat1_capacity);
+                     #endif  
+                   }         
+                   else if (fr_param_id == 5) {
+                     fr_bat2_capacity = fr_param_val;
+                     Param_50075_flag = true;
+                     #if defined Debug_FrSky_Messages
+                       PrintFrPeriod(0);    
+                       Log.print("Frsky 5007: Bat2 capacity=");
+                       Log.println(fr_bat2_capacity); 
+                     #endif  
+                   }
+                   
+                   Param_5007_flag = true;
+
+                   break;    
+                 case 0x5008:                         // Battery 2
+                   fr_bat2_volts = bit32Extract(fr_payload,0,9);
+                   fr_bat2_amps = bit32Extract(fr_payload,10,7)  * TenToPwr(bit32Extract(fr_payload,9,1));
+                   fr_bat2_mAh = bit32Extract(fr_payload,17,15);
+                   #if defined Debug_FrSky_Messages
+                     PrintFrPeriod(0);
+                     Log.print("FrSky 5008: Battery2 Volts=");
+                     Log.print(fr_bat2_volts, 1);
+                     Log.print("  Battery2 Amps=");
+                     Log.print(fr_bat2_amps, 1);
+                     Log.print("  Battery2 mAh=");
+                     Log.println(fr_bat2_mAh); 
+                   #endif                    
+                   Param_5008_flag = true;  
+                   break;                   
+                   
+        }
+
+        gpsGood = hdopGood & lonGood & latGood & altGood & hdgGood ; 
+        prev_appID = appID;
+    }
+
+    //=======================================================================================================================   
+
+    pol_t FrSkyPort::getPolarity(uint8_t rxpin) {
+      uint16_t hi = 0;
+      uint16_t lo = 0;  
+      const uint16_t mx = 1000;
+      while ((lo <= mx) && (hi <= mx)) {
+
+        if (digitalRead(rxpin) == 0) { 
+          lo++;
+        } else 
+        if (digitalRead(rxpin) == 1) {  
+          hi++;
+        }
+
+        if (lo > mx) {
+          if (hi == 0) {         
+            return no_traffic;
+          } else {
+            return idle_low; 
+          }
+        }
+        if (hi > mx) {
+          if (lo == 0) {
+            return no_traffic;
+          } else {
+            return idle_high; 
+          }
+        }
+        delayMicroseconds(200);
+       //Log.printf("rxpin:%d  %d\t\t%d\n",rxpin, lo, hi);  
+     } 
+    } 
+    //===================================================================      
+    uint32_t FrSkyPort::getBaud(uint8_t rxpin) {
+      Log.print("autoBaud - sensing rxpin "); Log.println(rxpin);
+    // Log.printf("autoBaud - sensing rxPin %2d \n", rxpin );
+      uint8_t i = 0;
+      uint8_t col = 0;
+      pinMode(rxpin, INPUT);       
+      //digitalWrite (rxpin, HIGH); // pull up enabled for noise reduction ?
+
+      uint32_t gb_baud = getConsistent(rxpin);
+      while (gb_baud == 0) {
+        if(ftgetBaud) {
+          ftgetBaud = false;
+      }
+
+        i++;
+        if ((i % 5) == 0) {
+          Log.print(".");
+          col++; 
+        }
+        if (col > 60) {
+          Log.println(); 
+            Log.print("No telemetry found on pin "); Log.println(rxpin);
+            // Log.printf("No telemetry found on pin %2d\n", rxpin); 
+          col = 0;
+          i = 0;
+        }
+        gb_baud = getConsistent(rxpin);
+      } 
+      if (!ftgetBaud) {
+        Log.println();
+      }
+
+      //Log.print("Telem found at "); Log.print(gb_baud);  Log.println(" b/s");
+      //LogScreenPrintln("Telem found at " + String(gb_baud));
+
+      return(gb_baud);      
+    }
     //===================================================================   
+    uint32_t FrSkyPort::getConsistent(uint8_t rxpin) {
+      uint32_t t_baud[5];
+
+      while (true) {  
+        t_baud[0] = SenseUart(rxpin);
+        delay(10);
+        t_baud[1] = SenseUart(rxpin);
+        delay(10);
+        t_baud[2] = SenseUart(rxpin);
+        delay(10);
+        t_baud[3] = SenseUart(rxpin);
+        delay(10);
+        t_baud[4] = SenseUart(rxpin);
+        #if defined Debug_All || defined Debug_Baud
+          Log.print("  t_baud[0]="); Log.print(t_baud[0]);
+          Log.print("  t_baud[1]="); Log.print(t_baud[1]);
+          Log.print("  t_baud[2]="); Log.print(t_baud[2]);
+          Log.print("  t_baud[3]="); Log.println(t_baud[3]);
+        #endif  
+        if (t_baud[0] == t_baud[1]) {
+          if (t_baud[1] == t_baud[2]) {
+            if (t_baud[2] == t_baud[3]) { 
+              if (t_baud[3] == t_baud[4]) {   
+                #if defined Debug_All || defined Debug_Baud    
+                  Log.print("Consistent baud found="); Log.println(t_baud[3]); 
+                #endif   
+                return t_baud[3]; 
+              }          
+            }
+          }
+        }
+      }
+    }
+    //===================================================================   
+    uint32_t FrSkyPort::SenseUart(uint8_t  rxpin) {
+
+    uint32_t pw = 999999;  //  Pulse width in uS
+    uint32_t min_pw = 999999;
+    uint32_t su_baud = 0;
+    const uint32_t su_timeout = 5000; // uS !  Default timeout 1000mS!
+
+      #if defined Debug_All || defined Debug_Baud
+        Log.printf("rxpin:%d  rxInvert:%d\n", rxpin, frInvert);  
+      #endif  
+
+      if (frInvert) {
+        while(digitalRead(rxpin) == 0){ };  // idle_low, wait for high bit (low pulse) to start
+      } else {
+        while(digitalRead(rxpin) == 1){ };  // idle_high, wait for high bit (high pulse) to start  
+      }
+
+      for (int i = 0; i < 10; i++) {
+
+        if (frInvert) {               //  Returns the length of the pulse in uS
+          pw = pulseIn(rxpin,HIGH, su_timeout);     
+        } else {
+          pw = pulseIn(rxpin,LOW, su_timeout);    
+        }    
+
+        if (pw !=0) {
+          min_pw = (pw < min_pw) ? pw : min_pw;  // Choose the lowest
+          //Log.printf("i:%d  pw:%d  min_pw:%d\n", i, pw, min_pw);      
+        } 
+      } 
+      #if defined Debug_All || defined Debug_Baud
+        Log.printf("pw:%d  min_pw:%d\n", pw, min_pw);
+      #endif
+
+      switch(min_pw) {   
+        case 1:     
+        su_baud = 921600;
+          break;
+        case 2:     
+        su_baud = 460800;
+          break;     
+        case 4 ... 11:     
+        su_baud = 115200;
+          break;
+        case 12 ... 19:  
+        su_baud = 57600;
+          break;
+        case 20 ... 28:  
+        su_baud = 38400;
+          break; 
+        case 29 ... 39:  
+        su_baud = 28800;
+         break;
+        case 40 ... 59:  
+        su_baud = 19200;
+          break;
+        case 60 ... 79:  
+        su_baud = 14400;
+          break;
+        case 80 ... 149:  
+        su_baud = 9600;
+          break;
+        case 150 ... 299:  
+        su_baud = 4800;
+          break;
+        case 300 ... 599:  
+        su_baud = 2400;
+          break;
+        case 600 ... 1199:  
+        su_baud = 1200;  
+          break;                        
+        default:  
+        su_baud = 0;    // no signal        
+      }
+      return su_baud;
+    }  
+    //===================================================================   
+    uint32_t FrSkyPort::TenToPwr(uint8_t pwr) {
+      uint32_t ttp = 1;
+      for (int i = 1 ; i<=pwr ; i++) {
+        ttp*=10;
+      }
+      return ttp;
+    }  
+    //===================================================================   
+
+    uint32_t FrSkyPort::bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth) {
+      uint32_t r = (dword & FrSkyPort::createMask(displ,(displ+lth-1))) >> displ;
+      //  Log.print(" Result=");
+      // Log.println(r);
+      return r;
+    }
+    //===================================================================      
+    uint32_t FrSkyPort::createMask(uint8_t lo, uint8_t hi) {
+      uint32_t r = 0;
+      for (unsigned i=lo; i<=hi; i++)
+         r |= 1 << i;
+      //  Log.print(" Mask 0x=");
+      //  Log.println(r, HEX);      
+      return r;
+    }
+      
+    //========================================================
+
+    uint32_t FrSkyPort::uint32Extract(uint8_t *buf, int posn){
+  
+      //  The number starts at byte "posn" of the received packet and is four bytes long.
+      //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap
+    
+      byte b1 = buf[posn+3];
+      byte b2 = buf[posn+2];
+      byte b3 = buf[posn+1];
+      byte b4 = buf[posn]; 
+   
+      unsigned long highWord = b1 << 8 | b2;
+      unsigned long lowWord  = b3 << 8 | b4;
+    
+        // Now combine the four bytes into an unsigned 32bit integer
+
+      uint32_t myvar = highWord << 16 | lowWord;
+      return myvar;
+    }
+
+    //========================================================
+    uint16_t FrSkyPort::uint16Extract(uint8_t *buf, int posn){
+  
+      //  The number starts at byte "posn" of the received packet and is two bytes long
+      //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap
+
+       byte b1 = buf[posn+1];
+       byte b2 = buf[posn];  
+    
+        // Now convert the 2 bytes into an unsigned 16bit integer
+    
+        uint16_t myvar = b1 << 8 | b2;
+        return myvar;
+    }
+      //=====================================================   
+
 
     void  FrSkyPort::Print_PWM_Channels(int16_t *ch, uint16_t num_of_channels) {
       for (int i = 0 ; i < num_of_channels ; i++ ) {
@@ -1107,364 +1630,28 @@
          }
        }
     } 
-    //===================================================================      
-    void FrSkyPort::DecodeFrsky() {
-    // Do the sensor packets according to fr_payload type. We are expecting Mavlink Passthrough only
+     //===================================================================  
 
-    static uint16_t prev_appID = 0;
-       
-    uint16_t fr_appID   = FrSkyPort::uint16Extract(3);
-             fr_payload = FrSkyPort::uint32Extract(5);
-    //   Log.print(" fr_appID=");
-    //   Log.println(fr_appID, HEX);
-
-      
-    switch(fr_appID) {
- 
-      case 0x800:                      // Latitude and Longitude
-                   fr_latlong = FrSkyPort::uint32Extract(5);
-                   ms2bits = fr_latlong >> 30;
-                   fr_latlong = fr_latlong & 0x3fffffff; // remove ms2bits
-             
-                   // Log.printf(" ms2bits:%d   latlong:%X\n", ms2bits, fr_latlong);
-
-                   if (ms2bits==0) {
-                     fr_lat = fr_latlong / 6E5;     // Only ever update lon and lat in pairs. Lon always comes first
-                     if (!(FrSkyPort::fr_lon==0)) lat_800_flag = true;  }
-                     else
-                       if (ms2bits==1) {
-                         fr_lat = 0-(fr_latlong / 6E5); 
-                         if (!(FrSkyPort::fr_lat==0)) lat_800_flag = true;   }
-                         else 
-                           if (ms2bits==2) {
-                             FrSkyPort::fr_lon = fr_latlong / 6E5;
-                             if (!(FrSkyPort::fr_lon==0)) lon_800_flag = true; } 
-                             else
-                               if (ms2bits==3) {
-                                 FrSkyPort::fr_lon = 0-(fr_latlong / 6E5);
-                                 if (!(FrSkyPort::fr_lon==0)) lon_800_flag = true;  }
-                                 
-                   latlon_800_flag = lat_800_flag && lon_800_flag; 
-                   
-                   if (latlon_800_flag) {
-                     #if defined Print_Decoded_FrSky
-                       Log.print("FrSky: latitude=");
-                       Log.print(FrSkyPort::fr_lat,7);
-                       Log.print(" longitude=");
-                       Log.println(FrSkyPort::fr_lon,7);
-                     #endif          
-                   }           
-                   break;
-
-                 //===================================================================
-                 case 0xF000:   
-                   break;
-                 case 0xF101:                        // RSSI  
-                   fr_rssi = fr_payload;
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky F101: RSSI=");
-                     Log.println(fr_rssi);
-                   #endif  
-                   break;
-                 case 0xF103:   
-                   break;
-                 case 0xF104:   
-                   break;
-                 case 0xF105:   
-                   break;
-                 //===================================================================
-                 //   Mavlink Passthrough Protocol below  
-                 
-                 case 0x5000:                         // Text Message
-                   ct[0] = frbuf[8];
-                   ct[1] = frbuf[7];
-                   ct[2] = frbuf[6];
-                   ct[3] = frbuf[5];
-                   ct[4] = 0;  // terminate string
-
-                   if (ct[0] == 0 || ct[1] == 0 || ct[2] == 0 || ct[3] == 0) 
-                 //    fr_severity = (bit32Extract(fr_payload,15,1) * 4) + (bit32Extract(fr_payload,23,1) * 2) + (bit32Extract(fr_payload,30,1) * 1);
-                     fr_severity = (bit32Extract(fr_payload,23,1) * 4) + (bit32Extract(fr_payload,15,1) * 2) + (bit32Extract(fr_payload,7,1) * 1); 
-                   if (strcmp(ct,p_ct)==0){     //  If this one = previous one it's a duplicate
-                     ct_dups++;
-                     break;
-                     }
-                     
-                   // This is the last (3rd) duplicate of (usually) 4 chunks
-
-                   for ( int i=0; i<5 ;i++ ) {  // Copy current 4 byte chunk to previous
-                     p_ct[i]=ct[i];
-                    }
-                   
-                   eot=false; 
- 
-                   if (ct[1] >= 0x80) { // It should always be this one, first of last 3 bytes
-                 //    b1 = ct[1]; 
-                     ct[1]=0;
-                     ct[2]=0;
-                     ct[3]=0;
-                     eot=true;
-                   }
-                   #if defined Print_Decoded_FrSky
-                     Log.print("TXT=");  
-                     Log.print(ct);
-                     Log.print(" ");
-                   #endif  
-                   strcat(fr_text, ct);  // Concatenate ct onto the back of fr_text
-                   ct_dups=0;
-                 
-                   if (!eot) break; // Drop through when end-of-text found
-                   #if defined Print_Decoded_FrSky
-                     Log.print("Frsky 5000: Severity=");  
-                     Log.print(fr_severity);
-                     Log.print(" Msg : ");  
-                     Log.println(fr_text);
-                   #endif  
-
-                   ST_5000_flag = true;  // Trigger Status Text encode in EncodeMavlink()
-
-                   break; 
-                   
-                 case 0x5001:                         // AP Status 2 Hz
-                   fr_flight_mode = bit32Extract(fr_payload,0,5);
-                   fr_simple = bit32Extract(fr_payload,5,2);
-                   fr_land_complete = bit32Extract(fr_payload,7,1);
-                   fr_armed = bit32Extract(fr_payload,8,1);
-                   fr_bat_fs = bit32Extract(fr_payload,9,1);
-                   fr_ekf_fs = bit32Extract(fr_payload,10,2);                   
-
-                   AP_5001_flag = true;   
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5001: Flight_mode=");
-                     Log.print(fr_flight_mode);
-                     Log.print(" simple_mode=");
-                     Log.print(fr_simple);
-                     Log.print(" land_complete=");
-                     Log.print(fr_land_complete);
-                     Log.print(" armed=");
-                     Log.print(fr_armed);
-                     Log.print(" battery_failsafe=");
-                     Log.print(fr_bat_fs);    
-                     Log.print(" EKF_failsafe=");
-                     Log.println(fr_ekf_fs);  
-                   #endif  
-                                                    
-                   break;                   
-                 case 0x5002:                         // GPS Status & Alt msl 1 Hz
-                   fr_numsats = bit32Extract(fr_payload, 0, 4);
-                   fr_gpsStatus = bit32Extract(fr_payload, 4, 2) + bit32Extract(fr_payload, 14, 2);
-                   fr_hdop = bit32Extract(fr_payload, 7, 7) * (10^bit32Extract(fr_payload, 6, 1));
-               //    fr_vdop = bit32Extract(fr_payload, 15, 7) * (10^bit32Extract(fr_payload, 14, 1)); 
-               
-                  fr_gps_alt = bit32Extract(fr_payload,24,7) * (10^bit32Extract(fr_gps_alt,22,2)); //-- dm
-                  fr_gps_alt*=10;
-                  if (bit32Extract(fr_gps_alt,31,1) == 1)
-                     fr_gps_alt = fr_gps_alt * -1;
-                  
-                //   fr_gps_alt = bit32Extract(fr_payload, 16, 16);  //  For use with modified arducopter 3.5.5
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5002: Num sats=");
-                     Log.print(fr_numsats);
-                     Log.print(" gpsStatus=");
-                     Log.print(fr_gpsStatus);                 
-                     Log.print(" HDOP=");
-                     Log.print(fr_hdop);   
-                     Log.print(" alt amsl=");
-                     Log.println(fr_gps_alt); 
-                   #endif  
-
-                   GPS_5002_flag=true;
-                   break;
-                 case 0x5003:                         // Battery 1 Hz
-  
-                   fr_bat_volts = (bit32Extract(fr_payload,0,9)) / 10;  // dv -> V
-                   fr_bat_amps = bit32Extract(fr_payload,10,7) * (10^bit32Extract(fr_payload,9,1));
-                   fr_bat_mAh = bit32Extract(fr_payload,17,15);
-
-                   Bat_5003_flag = true;
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5003: Battery Volts=");
-                     Log.print(fr_bat_volts, 1);
-                     Log.print("  Battery Amps=");
-                     Log.print(fr_bat_amps, 1);
-                     Log.print("  Battery mAh=");
-                     Log.println(fr_bat_mAh); 
-                   #endif       
-                   break;                          
-                 case 0x5004:                         // Home 2 Hz
-                   fr_home_dist = bit32Extract(fr_payload,2,10) * (10^bit32Extract(fr_payload,0,2));
-                   fr_fhome_dist = (float)fr_home_dist * 0.1;   // metres
-                   fr_home_alt = bit32Extract(fr_payload,14,10) * (10^bit32Extract(fr_payload,12,2));
-                   fr_fhome_alt = (float)(fr_home_alt) * 0.01;  // metres
-                   if (bit32Extract(fr_payload,24,1) == 1) 
-                     fr_fhome_alt *=  -1;
-                   fr_home_angle = bit32Extract(fr_payload, 25,  7) * 3;
-                   
-                   Home_5004_flag = true;
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5004: Dist to home=");
-                     Log.print(fr_fhome_dist, 1);              
-                     Log.print(" home_alt=");
-                     Log.print(fr_fhome_alt, 1);    // This is correct but fluctuates slightly. Can be negative
-                     Log.print(" home_angle="); 
-                     Log.println(fr_home_angle);    // degrees
-                   #endif  
-               
-                   break;                        
-                 case 0x5005:                    // Vert and Horiz Velocity and Yaw angle (Heading) 2 Hz
-                   fr_vx = bit32Extract(fr_payload,1,7) * (10^bit32Extract(fr_payload,0,1));
-                   if (bit32Extract(fr_payload,8,1) == 1)
-                     fr_vx *= -1;
-                   fr_vy = bit32Extract(fr_payload,10,7) * (10^bit32Extract(fr_payload,9,1));
-                   fr_yaw = bit32Extract(fr_payload,17,11) * 0.2;
-    
-                   velyaw_5005_flag = true;        
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5005: v_veloc=");
-                     Log.print(fr_vx,1);        // m/s
-                     Log.print(" h_veloc=");
-                     Log.print(fr_vy,1);        // m/s       
-                     Log.print(" yaw_angle="); 
-                     Log.println(fr_yaw,1);    // degrees
-                   #endif
-
-                   
-                   break; 
-                 case 0x5006:                         // Roll, Pitch and Range - Max Hz      
-                   fr_roll = bit32Extract(fr_payload,0,11);        
-                   fr_roll = (fr_roll - 900) * 0.2;             //  -- roll [0,1800] ==> [-180,180] 
-                   fr_pitch = bit32Extract(fr_payload,11,10);   
-                   fr_pitch = (fr_pitch - 450) * 0.2;           //  -- pitch [0,900] ==> [-90,90]
-                   fr_range = bit32Extract(fr_payload,22,10) * (10^bit32Extract(fr_payload,21,1));
-
-                   AT_5006_flag = true;
-                   #if defined Print_Decoded_FrSky
-                   if (fr_appID == prev_appID) break;
-                   
-                     Log.print("Frsky 5006: Range=");
-                     Log.print(fr_range,2);
-                     Log.print(" Roll=");
-                     Log.print(fr_roll);
-                     Log.print("deg   Pitch=");
-                     Log.print(fr_pitch);   
-                     Log.println("deg");   
-                                 
-                   #endif
-                   break;                                         
-                 case 0x5007:                         // Parameters
-                   fr_param_id = bit32Extract(fr_payload,24,4);
-                   fr_param_val = bit32Extract(fr_payload,0,24);
-                   if (fr_param_id == 1) {
-                     fr_frame_type = fr_param_val;
-                     Param_50071_flag = true;
-                     #if defined Print_Decoded_FrSky
-                       Log.print("Frsky 5007: Frame_type=");
-                       Log.println(fr_frame_type);
-                     #endif  
-                   }
-                   else if (fr_param_id == 2) {
-                     fr_fs_bat_volts = fr_param_val;
-                     Param_50072_flag = true;
-                     #if defined Print_Decoded_FrSky
-                       Log.print("Frsky 5007: Bat failsafe volts=");
-                       Log.println(fr_fs_bat_volts);
-                     #endif  
-                   }
-                   else if (fr_param_id == 3) {
-                     fr_fs_bat_mAh = fr_param_val;
-                     Param_50073_flag = true;
-                     #if defined Print_Decoded_FrSky
-                       Log.print("Frsky 5007: Bat failsafe mAh=");
-                       Log.println(fr_fs_bat_mAh);  
-                     #endif         
-                   }
-                   else if (fr_param_id== 4) {
-                     fr_bat1_capacity = fr_param_val;
-                     Param_50074_flag = true;
-                     #if defined Print_Decoded_FrSky
-                       Log.print("Frsky 5007: Bat1 capacity=");
-                       Log.println(fr_bat1_capacity);
-                     #endif  
-                   }         
-                   else if (fr_param_id == 5) {
-                     fr_bat2_capacity = fr_param_val;
-                     Param_50075_flag = true;
-                     #if defined Print_Decoded_FrSky
-                       Log.print("Frsky 5007: Bat2 capacity=");
-                       Log.println(fr_bat2_capacity); 
-                     #endif  
-                   }
-                   
-                   Param_5007_flag = true;
-
-                   break;    
-                 case 0x5008:                         // Battery 2
-                   fr_bat2_volts = bit32Extract(fr_payload,0,9);
-                   fr_bat2_amps = bit32Extract(fr_payload,10,7)  * (10^bit32Extract(fr_payload,9,1));
-                   fr_bat2_mAh = bit32Extract(fr_payload,17,15);
-                   #if defined Print_Decoded_FrSky
-                     Log.print("FrSky 5008: Battery2 Volts=");
-                     Log.print(fr_bat_volts, 1);
-                     Log.print("  Battery2 Amps=");
-                     Log.print(fr_bat_amps, 1);
-                     Log.print("  Battery2 mAh=");
-                     Log.println(fr_bat_mAh); 
-                   #endif                    
-                   Param_5008_flag = true;  
-                   break;       
+     void FrSkyPort::PrintFrPeriod(bool LF) {
+           
+      now_millis = millis();
+      now_micros = micros(); 
+      uint32_t period = now_millis - prev_fr_millis;
+      if (period < 10) {
+        period = now_micros - prev_fr_micros;
+        Log.printf(" FrPeriod uS=%d", period);
+      } else {
+        Log.printf(" FrPeriod mS=%d", period);
       }
-      prev_appID = fr_appID;
-    }
-
-    //===================================================================   
-
-    uint32_t FrSkyPort::bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth) {
-      uint32_t r = (dword & FrSkyPort::createMask(displ,(displ+lth-1))) >> displ;
-      //  Log.print(" Result=");
-      // Log.println(r);
-      return r;
-    }
-    //===================================================================      
-    uint32_t FrSkyPort::createMask(uint8_t lo, uint8_t hi) {
-      uint32_t r = 0;
-      for (unsigned i=lo; i<=hi; i++)
-         r |= 1 << i;
-      //  Log.print(" Mask 0x=");
-      //  Log.println(r, HEX);      
-      return r;
-    }  
-    //===================================================================    
-    uint16_t FrSkyPort::uint16Extract(uint8_t posn){
-  
-    //  The number starts at byte "posn" of the received packet and is two bytes long
-    //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap
-
-      byte b1 = frbuf[posn+1];
-      byte b2 = frbuf[posn];  
+      if (period < 100) {
+        Log.print("\t");
+      }       
+      if (LF) {
+        Log.print("\t\n");
+      } else {
+       Log.print("\t");
+      }
     
-        // Now convert the 2 bytes into an unsigned 16bit integer
-    
-        uint16_t myvar = b1 << 8 | b2;
-        return myvar;
-    }
-    //===================================================================    
-
-    uint32_t FrSkyPort::uint32Extract(uint8_t posn){
-  
-    //  The number starts at byte "posn" of the received packet and is four bytes long.
-    //  GPS payload fields are little-endian, i.e they need an end-to-end byte swap
-    
-      byte b1 = frbuf[posn+3];
-      byte b2 = frbuf[posn+2];
-      byte b3 = frbuf[posn+1];
-      byte b4 = frbuf[posn]; 
-   
-      unsigned long highWord = b1 << 8 | b2;
-      unsigned long lowWord  = b3 << 8 | b4;
-    
-      // Now combine the four bytes into an unsigned 32bit integer
-
-       uint32_t myvar = highWord << 16 | lowWord;
-       return myvar;
-    }
-    //===================================================================               
+      prev_fr_millis = now_millis;
+      prev_fr_micros = now_micros;
+    }                                    

@@ -173,15 +173,17 @@ int32_t String_long(String S) {
 
   settingsPage += "<!DOCTYPE html><html><body><h>Mavlink To Passthru</h><form action='' ";   
   settingsPage += "autocomplete='on'> <center> <b><h3>MavToPassthru Translator Setup</h3> </b></center> <style>text-align:left</style>";
-      
-  settingsPage += "<br>FrSky Port Type: &nbsp &nbsp ";  
-  sprintf(temp, "<input type='radio' class='big' name='_frport' value='SPort' %s> SPort &nbsp &nbsp", set.frport3);
-  settingsPage += temp;      
-  sprintf(temp, "<input type='radio' class='big' name='_frport' value='FPort1' %s> FPort1 &nbsp &nbsp ", set.frport1);
-  settingsPage += temp;
-  sprintf(temp, "<input type='radio' class='big' name='_frport' value='FPort2' %s> FPort2 <br>", set.frport2);
-  settingsPage += temp;  
-     
+  
+    settingsPage += "<br>FrSky Port Type: &nbsp ";    
+    sprintf(temp, "<input type='radio' class='big' name='_frport' value='FPort1' %s> FPort1 &nbsp ", set.frport1);
+    settingsPage += temp;
+    sprintf(temp, "<input type='radio' class='big' name='_frport' value='FPort2' %s> FPort2 &nbsp ", set.frport2);
+    settingsPage += temp;  
+    sprintf(temp, "<input type='radio' class='big' name='_frport' value='SPort' %s> SPort &nbsp ", set.frport3);
+    settingsPage += temp;    
+    sprintf(temp, "<input type='radio' class='big' name='_frport' value='Auto' %s> Auto <br>", set.frport4);
+    settingsPage += temp;    
+
   settingsPage += "Frs Downlink &nbsp &nbsp";  
   #if (defined btBuiltin)  
     sprintf(temp, "<input type='radio' class='big' name='_set.fr_io' value='BT' %s> BT &nbsp &nbsp", set.fr_io1);
@@ -202,11 +204,6 @@ int32_t String_long(String S) {
   settingsPage += temp;
   //sprintf(temp, "<input type='radio' class='big' name='_wfmode' value='AP_STA' %s> AP_STA &nbsp <br>", set.wfmode4);
   //settingsPage += temp;
-  settingsPage += "WiFi Protocol: &nbsp &nbsp ";
-  sprintf(temp, "<input type='radio' class='big' name='_wfproto' value='TCP' %s> TCP &nbsp &nbsp", set.wfproto1);
-  settingsPage += temp;
-  sprintf(temp, "<input type='radio' class='big' name='_wfproto' value='UDP' %s> UDP &nbsp <br>", set.wfproto2);
-  settingsPage += temp; 
   sprintf(temp, "WiFi Channel: <input type='text' name='_channel' value='%d' size='1' maxlength='2'> <br>", set.channel);
   settingsPage += temp;
   sprintf(temp, "AP SSID: <input type='text' name='_apSSID' value='%s' size='30' maxlength='30'> <br>", set.apSSID);
@@ -218,10 +215,6 @@ int32_t String_long(String S) {
   sprintf(temp, "STA Password: <input type='password' name='_staPw' value='%s' size='20' minlength='8' required> <br>", set.staPw);
   settingsPage += temp;
   sprintf(temp, "Host Name: <input type='text' name='_host' value='%s' size='20'> <br>", set.host);
-  settingsPage += temp;
-  sprintf(temp, "TCP Ports: local  <input type='text' name='_tcp_localPort' value='%d' size='2' minlength='2' required maxlength='5'>", set.tcp_localPort);
-  settingsPage += temp;
-  sprintf(temp, " &nbsp &nbsp remote <input type='text' name='_tcp_remotePort' value='%d' size='2' minlength='2' required maxlength='5'> <br>", set.tcp_remotePort);
   settingsPage += temp;
   sprintf(temp, "UDP Ports: local  <input type='text' name='_udp_localPort' value='%d' size='2' minlength='2' required maxlength='5'> ", set.udp_localPort);
   settingsPage += temp;
@@ -265,7 +258,9 @@ byte b;
       set.frport = f_port2;      
     }  else if (b == 3) {
       set.frport = s_port;
-    } 
+    }  else if (b == 4) {
+      set.frport = f_auto;
+    }  
         
     b = EEPROMRead8(165);                         // set.fr_io 165
 
@@ -287,12 +282,6 @@ byte b;
     } else if (b == 3) {
       set.wfmode = sta_ap;
     } 
-    b = EEPROMRead8(7);     // wifi protocol
-    if (b == 1) {
-      set.wfproto = tcp;
-    } else if (b == 2) {
-      set.wfproto = udp;
-    }  
     set.channel = EEPROMRead8(12);               //  12
     EEPROMReadString(13, set.apSSID);            //  13 thru 42
     EEPROMReadString(43, set.apPw);               //  4 thru 62
@@ -312,9 +301,7 @@ byte b;
       LogScreenPrintln("STA PW < 8 chars long");   
     }
     
-    EEPROMReadString(113, set.host);             // 113 thru 132   
-    set.tcp_localPort = EEPROMRead16(133);       // 133 thru 134 
-    set.tcp_remotePort = EEPROMRead16(162);      // 162 thru 163     
+    EEPROMReadString(113, set.host);             // 113 thru 132     
     set.udp_localPort = EEPROMRead16(135);       // 135 thru 136 
     set.udp_remotePort = EEPROMRead16(137);      // 137 thru 138 
     b = EEPROMRead8(139);                        // 139
@@ -333,16 +320,13 @@ byte b;
       Log.print("validity_check = "); Log.println(set.validity_check, HEX);
       Log.print("fr_port_type = "); Log.println(set.frport);      
       Log.print("set.fr_io = "); Log.println(set.fr_io);                      
-      Log.print("wifi mode = "); Log.println(set.wfmode);
-      Log.print("wifi protocol = "); Log.println(set.wfproto);     
+      Log.print("wifi mode = "); Log.println(set.wfmode);   
       Log.print("wifi channel = "); Log.println(set.channel);  
       Log.print("apSSID = "); Log.println(set.apSSID);
       Log.print("apPw = "); Log.println(set.apPw);
       Log.print("staSSID = "); Log.println(set.staSSID);
       Log.print("staPw = "); Log.println(set.staPw); 
-      Log.print("Host = "); Log.println(set.host);           
-      Log.print("tcp_localPort = "); Log.println(set.tcp_localPort);
-      Log.print("tcp_remotePort = "); Log.println(set.tcp_remotePort);      
+      Log.print("Host = "); Log.println(set.host);                
       Log.print("udp_localPort = "); Log.println(set.udp_localPort);
       Log.print("udp_remotePort = "); Log.println(set.udp_remotePort); 
       Log.print("bt mode = "); Log.println(set.btmode); 
@@ -359,16 +343,13 @@ void WriteSettingsToEEPROM() {
       EEPROMWrite8(1, set.validity_check);           // apFailover is in 0 
       EEPROMWrite8(164, set.frport);                 //  164  came late to the party        
       EEPROMWrite8(165, set.fr_io);                  //  165  came late to the party       
-      EEPROMWrite8(6, set.wfmode);                   //  6
-      EEPROMWrite8(7, set.wfproto);                  //  7     
+      EEPROMWrite8(6, set.wfmode);                   //  6  
       EEPROMWrite8(12, set.channel);                 // 12
       EEPROMWriteString(13, set.apSSID);             // 13 thru 42 
       EEPROMWriteString(43, set.apPw);               // 43 thru 62      
       EEPROMWriteString(63, set.staSSID);            // 63 thru 92 
       EEPROMWriteString(93, set.staPw);              // 93 thru 112 
-      EEPROMWriteString(113, set.host);              // 113 thru 132 
-      EEPROMWrite16(133, set.tcp_localPort);         // 133 thru 134       
-      EEPROMWrite16(162, set.tcp_remotePort);        // 162 thru 163       
+      EEPROMWriteString(113, set.host);              // 113 thru 132    
       EEPROMWrite16(135, set.udp_localPort);         // 135 thru 136
       EEPROMWrite16(137, set.udp_remotePort);        // 137 thru 138
       EEPROMWrite8(139, set.btmode);                 // 139     
@@ -382,16 +363,13 @@ void WriteSettingsToEEPROM() {
         Log.print("validity_check = "); Log.println(set.validity_check, HEX);
         Log.print("fr_port_type = "); Log.println(set.frport);        
         Log.print("set.fr_io = "); Log.println(set.fr_io);                       
-        Log.print("wifi mode = "); Log.println(set.wfmode);
-        Log.print("wifi protocol = "); Log.println(set.wfproto);     
+        Log.print("wifi mode = "); Log.println(set.wfmode);  
         Log.print("wifi channel = "); Log.println(set.channel);  
         Log.print("apSSID = "); Log.println(set.apSSID);
         Log.print("apPw = "); Log.println(set.apPw);
         Log.print("staSSID = "); Log.println(set.staSSID);
         Log.print("staPw = "); Log.println(set.staPw); 
-        Log.print("Host = "); Log.println(set.host);           
-        Log.print("tcp_localPort = "); Log.println(set.tcp_localPort);
-        Log.print("tcp_remotePort = "); Log.println(set.tcp_remotePort);        
+        Log.print("Host = "); Log.println(set.host);                
         Log.print("udp_localPort = "); Log.println(set.udp_localPort);
         Log.print("udp_remotePort = "); Log.println(set.udp_remotePort); 
         Log.print("bt mode = "); Log.println(set.btmode); 
@@ -403,22 +381,23 @@ void WriteSettingsToEEPROM() {
 void ReadSettingsFromForm() {
   String S;
   
-
     S = server.arg("_frport");
-     if (S == "None") {
+    if (S == "None") {
       set.frport = f_none;
-   } else 
-   if (S == "SPort") {
-     set.frport = s_port;
    } else 
    if (S == "FPort1") {
       set.frport = f_port1;
    }  else 
    if (S == "FPort2") {
       set.frport = f_port2;
-   }  
-
-  
+   }  else 
+   if (S == "SPort") {
+     set.frport = s_port; 
+   } else 
+   if (S == "Auto") {
+     set.frport = f_auto; 
+   }
+   
   S = server.arg("_set.fr_io");      
   if (S == "BT") {
     set.fr_io = fr_bt;
@@ -443,14 +422,7 @@ void ReadSettingsFromForm() {
   if (S == "STA>AP") {
     set.wfmode = sta_ap;
   } 
-   
-  S = server.arg("_wfproto");
-  if (S == "TCP") {
-    set.wfproto = tcp;
-  } else 
-  if (S == "UDP") {
-    set.wfproto = udp;
-  }   
+     
   set.channel = String_long(server.arg("_channel")); 
   S = server.arg("_apSSID");
   strcpy(set.apSSID, S.c_str());
@@ -476,8 +448,6 @@ void ReadSettingsFromForm() {
 
   S = server.arg("_host");
   strcpy(set.host, S.c_str());    
-  set.tcp_localPort = String_long(server.arg("_tcp_localPort"));
-  set.tcp_remotePort = String_long(server.arg("_tcp_remotePort"));  
   set.udp_localPort = String_long(server.arg("_udp_localPort"));
   set.udp_remotePort = String_long(server.arg("_udp_remotePort")); 
   S = server.arg("_btmode");
@@ -497,16 +467,13 @@ void ReadSettingsFromForm() {
         Log.print("validity_check = "); Log.println(set.validity_check, HEX); 
         Log.print("fr_port_type = "); Log.println(set.frport);       
         Log.print("set.fr_io = "); Log.println(set.fr_io);                                
-        Log.print("wifi mode = "); Log.println(set.wfmode);
-        Log.print("wifi protocol = "); Log.println(set.wfproto);     
+        Log.print("wifi mode = "); Log.println(set.wfmode);   
         Log.print("wifi channel = "); Log.println(set.channel);  
         Log.print("apSSID = "); Log.println(set.apSSID);
         Log.print("apPw = "); Log.println(set.apPw);
         Log.print("staSSID = "); Log.println(set.staSSID);
         Log.print("staPw = "); Log.println(set.staPw); 
-        Log.print("Host = "); Log.println(set.host);           
-        Log.print("tcp_localPort = "); Log.println(set.tcp_localPort);
-        Log.print("tcp_remotePort = "); Log.println(set.tcp_remotePort);        
+        Log.print("Host = "); Log.println(set.host);                   
         Log.print("udp_localPort = "); Log.println(set.udp_localPort);
         Log.print("udp_remotePort = "); Log.println(set.udp_remotePort); 
         Log.print("bt mode = "); Log.println(set.btmode); 
@@ -517,21 +484,31 @@ void ReadSettingsFromForm() {
 //=================================================================================
 void RefreshHTMLButtons() {
 
-  if (set.frport == s_port) {
-    set.frport3 = "checked";
-    set.frport1 = "";
-    set.frport2 = "";     
-  } else 
   if (set.frport == f_port1) {
-    set.frport3 = "";
     set.frport1 = "checked";
-    set.frport2 = "";     
+    set.frport2 = "";
+    set.frport3 = ""; 
+    set.frport4 = "";          
   }  else 
   if (set.frport == f_port2) {
-    set.frport3 = "";
     set.frport1 = "";
-    set.frport2 = "checked";     
-  }   
+    set.frport2 = "checked";
+    set.frport3 = "";   
+    set.frport4 = "";         
+  }  else
+   if (set.frport == s_port) {
+    set.frport1 = "";
+    set.frport2 = "";
+    set.frport3 = "checked"; 
+    set.frport4 = "";          
+  } else
+   if (set.frport == f_auto) {
+    set.frport1 = "";
+    set.frport2 = "";
+    set.frport3 = ""; 
+    set.frport4 = "checked";     
+  }  
+   
   if (set.fr_io == fr_bt) {
     set.fr_io1 = "checked";
     set.fr_io2 = "";
@@ -563,15 +540,6 @@ void RefreshHTMLButtons() {
     set.wfmode2 = "";
     set.wfmode3 = "checked";    
   } 
-
-  if (set.wfproto == tcp) {
-    set.wfproto1 = "checked";
-    set.wfproto2 = "";
-  } else 
-  if (set.wfproto == udp) {
-    set.wfproto1 = "";
-    set.wfproto2 = "checked";
-  }
 
   if (set.btmode == master) {
     set.btmode1 = "checked";
@@ -796,14 +764,17 @@ void RefreshHTMLButtons() {
  
 void RawSettingsToStruct() {
   
+  
   #if (FrSky_Port_Type == 0)
     set.frport = f_none;
-  #elif (FrSky_Port_Type == 3)
-    set.frport = s_port;
   #elif (FrSky_Port_Type == 1)
     set.frport = f_port1;
   #elif (FrSky_Port_Type == 2)
     set.frport = f_port2;   
+   #elif (FrSky_Port_Type == 3)
+    set.frport = s_port;   
+  #elif (FrSky_Port_Type == 4)
+    set.frport = f_auto;    
   #endif
   
   if (FrSky_IO == 1) {
@@ -825,13 +796,6 @@ void RawSettingsToStruct() {
   if (WiFi_Mode == 3) {
     set.wfmode = sta_ap;
   } 
-    
-  if (Mav_WiFi_Protocol == 1) {
-    set.wfproto = tcp;
-  } else 
-  if (Mav_WiFi_Protocol == 2) {
-    set.wfproto = udp;
-  } 
                
   set.channel = APchannel;
   strcpy(set.apSSID, APssid);  
@@ -839,10 +803,8 @@ void RawSettingsToStruct() {
   strcpy(set.staSSID, STAssid);           
   strcpy(set.staPw, STApw);   
   strcpy(set.host, HostName);        
-  set.tcp_localPort = TCP_localPort;
-  set.tcp_remotePort = TCP_remotePort;  
-  set.udp_localPort = UDP_remotePort;
-  set.udp_remotePort = UDP_localPort;  
+  set.udp_localPort = UDP_localPort;
+  set.udp_remotePort = UDP_remotePort;  
 
   if ( BT_Mode == 1 ) {
     set.btmode = master;
@@ -868,16 +830,13 @@ void RawSettingsToStruct() {
       Log.print("validity_check = "); Log.println(set.validity_check, HEX);     
       Log.print("frport = "); Log.println(set.frport);           
       Log.print("set.fr_io = "); Log.println(set.fr_io);                  
-      Log.print("wifi mode = "); Log.println(set.wfmode);
-      Log.print("wifi protocol = "); Log.println(set.wfproto);     
+      Log.print("wifi mode = "); Log.println(set.wfmode);    
       Log.print("wifi channel = "); Log.println(set.channel);  
       Log.print("apSSID = "); Log.println(set.apSSID);
       Log.print("apPw = "); Log.println(set.apPw);
       Log.print("staSSID = "); Log.println(set.staSSID);
       Log.print("staPw = "); Log.println(set.staPw); 
-      Log.print("Host = "); Log.println(set.host);           
-      Log.print("tcp_localPort = "); Log.println(set.tcp_localPort);
-      Log.print("tcp_remotePort = "); Log.println(set.tcp_remotePort);      
+      Log.print("Host = "); Log.println(set.host);              
       Log.print("udp_localPort = "); Log.println(set.udp_localPort);
       Log.print("udp_remotePort = "); Log.println(set.udp_remotePort); 
       Log.print("bt mode = "); Log.println(set.btmode); 

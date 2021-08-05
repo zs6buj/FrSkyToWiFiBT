@@ -5,7 +5,7 @@
 // 
 #define MAJOR_VERSION      0
 #define MINOR_VERSION      0
-#define PATCH_LEVEL        3
+#define PATCH_LEVEL        4
 /*
 =================================================================================================== 
                                 M o s t    R e c e n t   C h a n g e s
@@ -14,9 +14,11 @@
 Complete change log and debugging options are at the bottom of this tab
                                           
  v0.0.2               Added HUD display, bug fixes
- V0.0.3  2021-03-04   Hud rssi blank fix
+ v0.0.3  2021-03-04   Hud rssi blank fix
          2021-03-09   Serial-in, allways auto detect polarity, speed and protocol.
                       Other small fixes.
+ v0.0.4  2021-08004   if (set.wfmode = sta_a forced STA/AP. Fixed
+                      
                                                                  
 */
 //===========================================================================================
@@ -30,7 +32,7 @@ Complete change log and debugging options are at the bottom of this tab
 
                                        // Most of the settings below are saved to EEPROM the first time mav2pt runs
                                        // They should be change through the web interface
-//#define Reset_Web_Defaults           // Reset settings in eeprom. Do this if you suspect eeprom settings are corrupt USE SPARINGLY
+#define Reset_Web_Defaults           // Reset settings in eeprom. Do this if you suspect eeprom settings are corrupt USE SPARINGLY
 
 
 // Choose only one setting for FrSky Port Type 
@@ -43,7 +45,7 @@ Complete change log and debugging options are at the bottom of this tab
 
 
 #define webSupport                  // ESP only. Enable wifi web support, including OTA firmware updating. Browse to IP.
-#define webPassword      "admin"    // Web password, change me!
+#define webPassword      "admin"    // Web password, change me! Username = admin
 
 #define displaySupport                 // Enable if you have a display attached - choose display type where board variant is defined 
 
@@ -56,8 +58,8 @@ Complete change log and debugging options are at the bottom of this tab
 // Select one only
 
 //#define FrSky_IO     1     // BT
-//#define FrSky_IO     2     // WiFi
-#define FrSky_IO     3     // WiFi+BT
+#define FrSky_IO     2     // WiFi
+//#define FrSky_IO     3     // WiFi+BT
 
 #if (not defined FrSky_IO) 
   #define FrSky_IO  0 
@@ -108,21 +110,13 @@ Complete change log and debugging options are at the bottom of this tab
 #define STApw                "Navara@98"         // Target AP password (in STA mode). Must be >= 8 chars      
 
 // Choose one default mode for ESP only - AP means advertise as an access point (hotspot). STA means connect to a known host
-//#define WiFi_Mode   1  //AP            
+#define WiFi_Mode   1  //AP            
 //#define WiFi_Mode   2  // STA
-#define WiFi_Mode   3  // (STA>AP) STA failover to AP 
+//#define WiFi_Mode   3  // (STA>AP) STA failover to AP 
 
-// Choose one default protocol - for ESP32 only
-//#define Mav_WiFi_Protocol 1    // TCP/IP
-#define Mav_WiFi_Protocol 2    // UDP 
-
-//#define UDP_Broadcast      // Comment out (default) if you want to track and target remote udp client ips
-// NOTE; UDP is not a connection based protocol. To communicate with > 1 client at a time, we must broadcast on the subnet  
-
-int16_t  TCP_localPort = 5760;     
-uint16_t  TCP_remotePort = 5760;    
-uint16_t  UDP_localPort = 14551;    // readPort 
-uint16_t  UDP_remotePort = 14556;   // sendPort
+// WiFi protocol is always UDP  
+uint16_t  UDP_localPort = 14556;    // readPort 
+uint16_t  UDP_remotePort = 14551;   // sendPort
 
 //=================================================================================================
 //                            R  S  S  I    O  P  T  I  O  N  S  
@@ -221,12 +215,6 @@ bool daylightSaving = false;
       #error Please define WiFi_Mode
     #endif
   #endif  
-
-  #if (defined ESP32)
-    #ifndef Mav_WiFi_Protocol
-      #error Please define Mav_WiFi_Protocol
-    #endif
-  #endif
 
   #if (defined ESP32)         
     #ifndef ESP32_Variant 
@@ -894,25 +882,16 @@ bool daylightSaving = false;
       #endif      
     #endif
     
-   //====================       W i F i   O b j e c t s 
-   
-    #define max_clients    6
-    uint8_t active_client_idx = 0;  // for TCP 
-    uint8_t active_object_idx = 0;  // for UDP
-
-    WiFiClient *tcp_client[max_clients] = {NULL}; // pointers to TCP client objects 
-    
-    WiFiServer TCPserver(TCP_localPort);          // dummy TCP local port(changes on TCPserver.begin() ).
-
+   //====================       W i F i   O b j e c t  &  C l i e nt s
+    const uint8_t max_clients = 8;
+       
     IPAddress UDP_remoteIP(192, 168, 1, 255);     // default to broadcast unless (not defined UDP_Broadcast)               
     IPAddress udpremoteip[max_clients];           // table of remote UDP client IPs
                    
-    WiFiUDP *udp_object[2] = {NULL};              // pointers to UDP objects for STA and AP modes
     WiFiUDP frs_udp_object;  
                  
-    IPAddress localIP;                            // tcp and udp
-    IPAddress TCP_remoteIP(192,168,4,1);          // when we connect to a server in tcp client mode, put the server IP here 
-    
+    IPAddress localIP;                            
+   
   #endif  // end of ESP32 and ESP8266
   
 //=================================================================================================   
@@ -955,25 +934,13 @@ bool daylightSaving = false;
 //=================================================================================================
 
 //#define Frs_Debug_All
-//#define Debug_BT    
-//#define Debug_Read_UDP_GCS  
-//#define Debug_Send_UDP_GCS
-//#define Debug_Read_UDP_FC  
-//#define Debug_Send_UDP_FC  
-//#define Frs_Debug_Servo
-//#define Frs_Debug_Rssi        // 0xF101         
-//#define Frs_Debug_RC
-//#define Frs_Debug_Params       //0x5007
-//#define Frs_Debug_APStatus    // 0x5001
-//#define Debug_Batteries       // 0x5003
-//#define Frs_Debug_Home        // 0x5004
-//#define Frs_Debug_LatLon      // 0x800
-//#define Frs_Debug_VelYaw      // 0x5005
-//#define Frs_Debug_GPS_status  // 0x5002
-//#define Frs_Debug_Hud         // 0x50F2
-//#define Frs_Debug_AttiRange   // 0x5006
-//#define Frs_Debug_StatusText  // 0x5000
-//#define Frs_Debug_Mission   
+//#define Debug_BT  
+   
+#define Debug_Send_UDP_Frs
+
+#define Debug_FrSky_Messages
+
+
 //#define Debug_Eeprom 
 //#define Debug_WiFi
 //#define Debug_Loop_Period
@@ -990,12 +957,12 @@ bool daylightSaving = false;
 //#define Frs_Debug_Period
  //#define Support_SBUS_Out 
 
-//#define Debug_Send_UDP
-
 //#define Debug_Baud
+
 //#define Debug_FrPort_Stream
-//#define Debug_FPort_Buffer 
-//#define Debug_FrSky_Messages
+
+#define Debug_FrPort_Buffer 
+
 //#define Debug_PWM_Channels
 //=================================================================================================   
 //                                   C H A N G E   L O G

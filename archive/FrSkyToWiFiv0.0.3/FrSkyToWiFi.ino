@@ -40,12 +40,10 @@
 
 void main_loop();
 void ServiceWiFiRoutines();
-void ServiceInboundTCPClients();
 void CheckStaLinkStatus(); 
 void StartWiFiTimer();
 void RestartWiFiSta();
 void Start_Access_Point();
-bool NewOutboundTCPClient();
 void ServiceStatusLeds();
 void BlinkFrsLed(uint32_t);
 void DisplayRemoteIP();
@@ -309,21 +307,9 @@ void setup()  {
      LogScreenPrintln("WiFi-mode=STA>AP");
    } 
     
-   if (set.wfproto == tcp)  {
-     Log.println("Protocol is TCP/IP");
-     LogScreenPrintln("Protocol=TCP/IP");
-   }
-   else if  (set.wfproto == udp) {
-     Log.print("Protocol is UDP");
-     LogScreenPrintln("Protocol = UDP");
-     #if defined UDP_Broadcast
-       Log.println(" Broadcast");
-       LogScreenPrintln(" Broadcast");
-     #else
-       Log.println(" IP-Targeted");     
-       LogScreenPrintln("IP-Targeted");
-     #endif
-   }
+   Log.println("Protocol is IP-Targeted UDP");
+   LogScreenPrintln("Protocol = UDP");
+
   }
 
 

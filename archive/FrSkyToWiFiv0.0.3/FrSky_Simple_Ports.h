@@ -231,8 +231,7 @@
     bool          Send_WiFi_BT_Frame(); 
     #if (defined btBuiltin)    
       bool          Send_Bluetooth(uint8_t *buf, uint16_t len);   
-    #endif  
-    bool          Send_TCP(uint8_t *buf, uint16_t len);           
+    #endif         
     bool          Send_UDP(uint8_t *buf, uint16_t len);
     uint32_t      TenToPwr(uint8_t pwr);    
     uint32_t      bit32Extract(uint32_t dword,uint8_t displ, uint8_t lth);
@@ -343,7 +342,7 @@
        
       if (frport_type == s_port) {  
         if ( SPort_Read_A_Frame(&FrSkyPort::frbuf[0]) ) {
-          #if (defined Debug_FPort_Buffer) 
+          #if (defined Debug_FrPort_Buffer) 
              Log.print("Good FrSky Frame Read: ");
              FrSkyPort::PrintBuffer(frbuf, 10);
           #endif           
@@ -658,7 +657,7 @@
        chr = SafeRead();           // this is the crc byte
        *(buf+i) = chr;      
        
-      #if (defined Debug_FPort_Buffer) 
+      #if (defined Debug_FrPort_Buffer) 
         PrintBuffer(buf, lth+4);
       #endif 
 
@@ -933,6 +932,8 @@
     bool FrSkyPort::Send_WiFi_BT_Frame() {
 
     bool msgSent = false;    
+
+    Log.printf("set.fr_io:%u\n", set.fr_io);
     
     if ((set.fr_io == fr_bt) || (set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt) ) {
       
@@ -953,29 +954,9 @@
       if ((set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt)) { //  WiFi
       
         if (wifiSuGood) {       
-          if (set.wfproto == tcp)  { // TCP      
-            for (int i = 1 ; i < max_clients ; ++i) {       // send to each active client. Not to inbound client [0] (FC side)
-              if (NULL != tcp_client[i]) {        // if active client
-                active_client_idx = i;
-                           
-                prev_millis = millis();
-                           
-                msgSent = Send_TCP(&frbuf[0], 10);  // to downlink
-                
-                if ((millis() -  prev_millis) > 4) {
-                  PrintFrPeriod(false);  Log.println(" TCP Write timeout =====================================>");  
-                }
-              
-                #ifdef  Debug_Frs_Down
-                  if (msgSent) {
-                    Log.printf("Sent to client %d by WiFi TCP\n", active_client_idx+1);  
-                  }
-                #endif
-              }
-            }    
-          }
+
         
-          if (set.wfproto == udp)  { // UDP     
+           // UDP     
   
             udp_read_port = set.udp_localPort;  
             udp_send_port = set.udp_remotePort;                       
@@ -997,13 +978,13 @@
 
                   #if (defined Debug_Frs_Down) || (defined Debug_Send_UDP_Frs)
                     Log.print("Sent by WiFi UDP: msgSent="); Log.println(msgSent);
-                    PrintBuffer(&frbuf, 10);
+                    FrSkyPort::PrintBuffer(&frbuf[0], 10);
                   #endif                          
                 }
              }  
            #endif  
   
-          }                                                                     
+                                                                   
         }  
       }
      }
@@ -1026,46 +1007,29 @@
         return msgSent;
       }
     #endif
-    //===================================================================   
 
-      bool FrSkyPort::Send_TCP(uint8_t *buf, uint16_t len) {
-      if ( (!wifiSuGood) || ((!inbound_clientGood) && (!outbound_clientGood)) ) return false; 
-        bool msgSent = false;
-    
-        size_t sent =  tcp_client[active_client_idx]->write(buf,len);  
 
-        if (sent == len) {
-          msgSent = true;
-          link_status.packets_sent++;
-        }
-
-        return msgSent;
-      }
-
-    //===================================================================   
+   //===================================================================   
 
     bool FrSkyPort::Send_UDP(uint8_t *buf, uint16_t len) {
-      if (!wifiSuGood) return false;  
-
-      // 2 possible udp objects, STA [0]  and  AP [1] 
-        
+      if (!wifiSuGood) return false;     
       bool msgSent = false;
 
-      udp_object[active_object_idx]->beginPacket(UDP_remoteIP, udp_send_port);  
+      frs_udp_object.beginPacket(UDP_remoteIP, udp_send_port);  
     
-      size_t sent = udp_object[active_object_idx]->write(buf,len);
+      size_t sent = frs_udp_object.write(buf,len);
       
-      #if (defined Debug_FPort_Buffer) 
+      #if (defined Debug_FrPort_Buffer) 
         Log.print("Send_UDP buffer: ");
         FrSkyPort::PrintBuffer(buf, 10);
       #endif   
       if (sent == len) {
         msgSent = true;
         link_status.packets_sent++;
-        udp_object[active_object_idx]->flush();
+        frs_udp_object.flush();
       }
 
-      bool endOK = udp_object[active_object_idx]->endPacket();
+      bool endOK = frs_udp_object.endPacket();
       //   if (!endOK) Log.printf("msgSent=%d   endOK=%d\n", msgSent, endOK);
       return msgSent;
     }

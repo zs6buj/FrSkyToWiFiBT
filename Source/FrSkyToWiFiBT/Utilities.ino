@@ -46,7 +46,6 @@
         CheckStaLinkStatus();    // Handle disconnect/reconnect from AP
       }
       
-      ServiceInboundTCPClients();  // from GCS side
 
       // Report stations connected to/from our AP
       AP_sta_count = WiFi.softAPgetStationNum();
@@ -65,48 +64,7 @@
       }
    }  
 
-   //===============================     H a n d l e   I n B o u n d   T C P   C l i e n t s ( G C S   s i d e )
-
-   void ServiceInboundTCPClients() {
     
-    if ((set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt)) {  // Only when we expect incoming remote tcp_client
-      
-      if (set.wfproto == tcp)  {  // TCP  
-        if (wifiSuGood) {
-
-          WiFiClient newClient = TCPserver.available();  // check if a new client wants to connect
-          if (newClient) {
-            for (int i=0 ; i < max_clients ; ++i) {      // if connected add it into our connected tcp_client table
-              if (NULL == tcp_client[i]) {                  // find first empty slot in table
-                tcp_client[i] = new WiFiClient(newClient);  // create new client object to use
-                inbound_clientGood = true;
-                active_client_idx = i;
-                Log.printf("Remote tcp client %d connected\n", i+1);
-                snprintf(snprintf_buf, snp_max, "Client %d connected", i+1);        
-                LogScreenPrintln(snprintf_buf);               
-                break;
-              }
-            }
-          }
-
-          for (int i=0 ; i < max_clients ; ++i) {      // check to see if any clients have disconnected
-            if (NULL != tcp_client[i]) {      
-                if (!tcp_client[i]) {
-                  nbdelay(100);  
-                  tcp_client[i]->stop();
-                  tcp_client[i] = NULL;
-                  nbdelay(100);  
-                  inbound_clientGood = false; 
-                  Log.println("TCP client disconnected");
-                  LogScreenPrintln("TCP client discnct");           
-                }
-                break;
-              }
-          }
-        }
-      }
-    } 
-   }      
 
    //===================     H a n d l e   S T A   D i s c o n n e c t  /  R e c o n n e c t
   
@@ -218,8 +176,7 @@
 
     //=====================================  S T A T I O N ========================================== 
 
-   
-   if ((set.wfmode == sta) || (set.wfmode = sta_ap) )  {  // STA mode or AP_STA mode or STA failover to AP mode
+   if ((set.wfmode == sta) || (set.wfmode == sta_ap) )  {  // STA mode or AP_STA mode or STA failover to AP mode
      if (!apFailover) {   
      
       uint8_t retry = 0;
@@ -240,7 +197,7 @@
       WiFi.begin(set.staSSID, set.staPw);
       while (WiFi.status() != WL_CONNECTED){
         retry++;
-        if (retry > 10) {
+        if (retry > 20) {
           Log.println();
           Log.println("Failed to connect in STA mode");
           LogScreenPrintln("No connect STA Mode");
@@ -270,7 +227,7 @@
           set.wfmode = sta;           // so set correct mode      
         }
         
-        localIP = WiFi.localIP();  // TCP and UDP
+        localIP = WiFi.localIP();  
    
         UDP_remoteIP = localIP;    // Initially broadcast on the subnet we are attached to. patch by Stefan Arbes. 
         UDP_remoteIP[3] = 255;     // patch by Stefan Arbes  
@@ -278,13 +235,7 @@
         Log.println();
         Log.println("WiFi connected!");
         Log.print("Local IP address: ");
-        Log.print(localIP);
-        if (set.wfproto == tcp)  {   // TCP
-          Log.print("  port: ");
-          Log.println(set.tcp_localPort);    //  UDP port is printed lower down
-        } else {
-          Log.println();
-        }
+        Log.println(localIP);
  
         wifi_rssi = WiFi.RSSI();
         Log.print("WiFi RSSI:");
@@ -293,38 +244,26 @@
 
         LogScreenPrintln("Connected!");
         LogScreenPrintln(localIP.toString());
-   
-        if (set.wfproto == tcp)  {   // TCP     
-          TCPserver.begin(set.tcp_localPort);                     //  tcp server socket started
-          Log.println("TCP server started");  
-          LogScreenPrintln("TCP server started");
-        }
 
-        if (set.wfproto == udp)  {  // UDP
+         // UDP
 
-          udp_read_port = set.udp_localPort; 
-          udp_send_port = set.udp_remotePort;                          
+        udp_read_port = set.udp_localPort; 
+        udp_send_port = set.udp_remotePort;                          
+      
+        Log.printf("Begin UDP using Frs UDP object  read port:%d  send port:%d\n", udp_read_port, udp_send_port);                                                             
+        frs_udp_object.begin(udp_read_port);  
+                  
+        UDP_remoteIP = localIP;        
+        UDP_remoteIP[3] = 255;           // broadcast until we know which ip to target     
 
-          if (set.wfproto == udp) {
-            WiFiUDP UDP_STA_Object;        
-            udp_object[0] = new WiFiUDP(UDP_STA_Object);   
-            Log.printf("Begin UDP using STA UDP object  read port:%d  send port:%d\n", udp_read_port, udp_send_port);                                                             
-            udp_object[0]->begin(udp_read_port);  
-          }
-          
-          UDP_remoteIP = localIP;        
-          UDP_remoteIP[3] = 255;           // broadcast until we know which ip to target     
-
-          if ((set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt) ) {  // if fr wifi            
+        if ((set.fr_io == fr_wifi) || (set.fr_io == fr_wifi_bt) ) {  // if fr wifi            
             udpremoteip[1] = UDP_remoteIP;                             // [1] IPs reserved for downlink side              
-          }    
+        }    
  
-          Log.printf("UDP for STA started, local %s   remote %s\n", localIP.toString().c_str(), 
-              UDP_remoteIP.toString().c_str());
-          snprintf(snprintf_buf, snp_max, "Local port=%d", set.udp_localPort);     
-          LogScreenPrintln(snprintf_buf);
-       
-        }
+        Log.printf("UDP for STA started, local %s   remote %s\n", localIP.toString().c_str(), 
+            UDP_remoteIP.toString().c_str());
+        snprintf(snprintf_buf, snp_max, "Local port=%d", set.udp_localPort);     
+        LogScreenPrintln(snprintf_buf);
 
         wifiSuGood = true;
         
@@ -383,7 +322,7 @@
     
       WiFi.softAP(set.apSSID, set.apPw, set.channel);
       
-      localIP = WiFi.softAPIP();   // tcp and udp
+      localIP = WiFi.softAPIP();   
 
       Log.print("AP IP address: ");
       Log.print (localIP); 
@@ -395,68 +334,31 @@
       LogScreenPrintln("WiFi AP SSID =");
       snprintf(snprintf_buf, snp_max, "%s", set.apSSID);        
       LogScreenPrintln(snprintf_buf);  
-      
-      if (set.wfproto == tcp)  {         // TCP
-          TCPserver.begin(set.tcp_localPort);   //  Server for TCP/IP traffic     
-          Log.printf("TCP/IP started, local IP:port %s:%d\n", localIP.toString().c_str(), set.tcp_localPort);
-          snprintf(snprintf_buf, snp_max, "TCP port = %d", set.tcp_localPort);        
-          LogScreenPrintln(snprintf_buf);        
-        }
-
-        if ( (set.wfproto == udp) || (set.fr_io & 0x02) ) {  // UDP
-          WiFiUDP UDP_AP_Object;        
-          udp_object[1] = new WiFiUDP(UDP_AP_Object); 
+     
+      // UDP 
             
-          udp_read_port = set.udp_remotePort;  
-          udp_send_port = set.udp_localPort;                    
+      udp_read_port = set.udp_localPort;  
+      udp_send_port = set.udp_remotePort;                    
           
-          if (set.wfproto == udp) {
-            WiFiUDP UDP_STA_Object;        
-            udp_object[0] = new WiFiUDP(UDP_STA_Object);         
-            Log.printf("Begin UDP using STA UDP object  read port:%d  send port:%d\n", udp_read_port, udp_send_port);                 
-            udp_object[0]->begin(udp_read_port);  
-          }
-                  
-          UDP_remoteIP = WiFi.softAPIP();
-          UDP_remoteIP[3] = 255;           // broadcast until we know which ip to target       
+      Log.printf("Begin UDP using Frs UDP object  read port:%d  send port:%d\n", set.udp_localPort, set.udp_remotePort);                    
+      frs_udp_object.begin(set.udp_localPort);          // local port for Frs out                   
+                         
+      UDP_remoteIP = WiFi.softAPIP();
+      UDP_remoteIP[3] = 255;           // broadcast until we know which ip to target       
+
+      // Now initialise the first entry of the udp targeted ip table 
+      // FC side uses udpremoteip[0] and GCS side uses udpremoteip[1]
 
 
-          Log.printf("Using UDP object 1\n");             
-          udp_object[1]->begin(udp_read_port);           
-          udpremoteip[1] = UDP_remoteIP;                
+      udpremoteip[0] = UDP_remoteIP;  // we never use FC side udpremoteip[0]
+      udpremoteip[1] = UDP_remoteIP;          
        
-          Log.printf("UDP for AP started, local %s   remote %s\n", WiFi.softAPIP().toString().c_str(), 
-              UDP_remoteIP.toString().c_str());         
+      Log.printf("UDP for Frs started, local %s   remote %s\n", WiFi.softAPIP().toString().c_str(), 
+          UDP_remoteIP.toString().c_str());         
           snprintf(snprintf_buf, snp_max, "UDP port = %d", set.udp_localPort);        
-          LogScreenPrintln(snprintf_buf);            
-      }      
+      LogScreenPrintln(snprintf_buf);                 
   }
   
-  //=================================================================================================  
-  bool NewOutboundTCPClient() {
-  static uint8_t retry = 3;
-
-    WiFiClient newClient;        
-    while (!newClient.connect(TCP_remoteIP, TCP_remotePort)) {
-      Log.printf("Local outbound tcp client connect failed, retrying %d\n", retry);
-      retry--;
-      if (retry == 0) {
-         Log.println("Tcp client connect aborted!");
-         return false;
-      }
-      nbdelay(4000);
-    }
-    active_client_idx = 0;     // reserve the first tcp client object for our single outbound session   
-    tcp_client[0] = new WiFiClient(newClient); 
-    Log.print("Local tcp client connected to remote server IP:"); Log.print(TCP_remoteIP);
-    Log.print(" remote Port:"); Log.println(TCP_remotePort);
-
-    LogScreenPrintln("Client connected");
-    LogScreenPrintln("to remote TCP IP =");
-    LogScreenPrintln(TCP_remoteIP.toString()); 
-    return true;
-  }
-
   //=================================================================================================  
    void PrintRemoteIP() {
     if (FtRemIP)  {
@@ -857,7 +759,7 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 16 * CHAR_W_PX;        
           display.setCursor(xx, yy); 
-          snprintf(snprintf_buf, snp_max, "V:%.1fV", (float)fr_bat_volts);     
+          snprintf(snprintf_buf, snp_max, "V:%.1fV", (float)fr_bat1_volts);     
           display.fillRect(xx+(2*CHAR_W_PX), yy, (6*CHAR_W_PX), CHAR_H_PX, ILI9341_BLUE); // clear the previous line   
           display.println(snprintf_buf); 
           
@@ -865,7 +767,7 @@ void PrintLoopPeriod() {
           xx = 9 * CHAR_W_PX;
           yy = 16 * CHAR_W_PX;        
           display.setCursor(xx, yy); 
-          snprintf(snprintf_buf, snp_max, "A:%.0f", (float)fr_bat_amps/100);     
+          snprintf(snprintf_buf, snp_max, "A:%.0f", (float)fr_bat1_amps/100);     
           display.fillRect(xx+(2*CHAR_W_PX), yy, (6*CHAR_W_PX), CHAR_H_PX, ILI9341_BLUE); // clear the previous line   
           display.println(snprintf_buf); 
           
@@ -873,7 +775,7 @@ void PrintLoopPeriod() {
           xx = 18 * CHAR_W_PX;
           yy = 16 * CHAR_W_PX;        
           display.setCursor(xx, yy); 
-          snprintf(snprintf_buf, snp_max, "Ah:%.1f", (float)fr_bat_mAh / 1000);     
+          snprintf(snprintf_buf, snp_max, "Ah:%.1f", (float)fr_ba1t_mAh / 1000);     
           display.fillRect(xx+(3*CHAR_W_PX), yy, (5*CHAR_W_PX), CHAR_H_PX, ILI9341_BLUE); // clear the previous line   
           display.println(snprintf_buf);           
           
@@ -882,13 +784,13 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 18 * CHAR_H_PX;
           display.setCursor(xx,yy);       
-          snprintf(snprintf_buf, snp_max, "Lat:%.7f", FrPort.fr_lat);
+          snprintf(snprintf_buf, snp_max, "Lat:%.7f", cur.lat);
           display.fillRect(xx, yy, (15*CHAR_W_PX), CHAR_H_PX, ILI9341_BLUE); // clear the previous line        
           display.println(snprintf_buf);  
           xx = 18 * CHAR_W_PX;   
           yy = 18 * CHAR_H_PX;  
           display.setCursor(xx, yy);    
-          snprintf(snprintf_buf, snp_max, "Lon:%.7f", FrPort.fr_lon);
+          snprintf(snprintf_buf, snp_max, "Lon:%.7f", cur.lon);
           display.fillRect(xx, yy, 21 * CHAR_W_PX, CHAR_H_PX, ILI9341_BLUE); // clear the previous line            
           display.println(snprintf_buf);  
           display.setTextSize(2);    // 26 ch wide x 15 ch deep
@@ -901,7 +803,7 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 0;
           display.setCursor(xx,yy);       
-          snprintf(snprintf_buf, snp_max, "Lat %.7f", FrPort.fr_lat);
+          snprintf(snprintf_buf, snp_max, "Lat %.7f", cur.lat);
           display.fillRect(xx+(4*CHAR_W_PX), yy, 11 * CHAR_W_PX, CHAR_H_PX, SCR_BACKGROUND); // clear the previous data           
           display.println(snprintf_buf);  
 
@@ -909,7 +811,7 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 1.8 * CHAR_H_PX;    
           display.setCursor(xx, yy);                 
-          snprintf(snprintf_buf, snp_max, "Lon %.7f", FrPort.fr_lon);
+          snprintf(snprintf_buf, snp_max, "Lon %.7f", cur.lon);
           display.fillRect(xx+(4*CHAR_W_PX), yy, 11 * CHAR_W_PX, CHAR_H_PX, SCR_BACKGROUND);        
           display.println(snprintf_buf); 
 
@@ -917,7 +819,7 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 3.6 * CHAR_H_PX;      
           display.setCursor(xx, yy);               
-          snprintf(snprintf_buf, snp_max, "%.0fV %.1fA %.1fAh", FrPort.fr_bat_volts * 0.1F, FrPort.fr_bat_amps * 0.1F, FrPort.fr_bat_mAh * 0.001F);     
+          snprintf(snprintf_buf, snp_max, "%.0fV %.1fA %.1fAh", myFrPort.fr_bat1_volts * 0.1F, myFrPort.fr_bat1_amps * 0.1F, myFrPort.fr_bat1_mAh * 0.001F);     
           display.fillRect(xx, yy, SCR_W_PX, CHAR_H_PX, SCR_BACKGROUND); // clear the whole line  
           display.println(snprintf_buf); 
 
@@ -925,8 +827,9 @@ void PrintLoopPeriod() {
           xx = 0;
           yy = 5.4 * CHAR_H_PX;      
           display.setCursor(xx, yy);            
-          snprintf(snprintf_buf, snp_max, "Sats %d RSSI %ld%%", FrPort.fr_numsats, FrPort.fr_rssi); 
-          display.fillRect(xx+(4*CHAR_W_PX), yy, 10 * CHAR_W_PX, CHAR_H_PX, SCR_BACKGROUND);     
+          snprintf(snprintf_buf, snp_max, "Sats %d RSSI %ld%%", myFrPort.fr_numsats, myFrPort.fr_rssi); 
+          display.fillRect(xx+(5*CHAR_W_PX), yy, 3 * CHAR_W_PX, CHAR_H_PX, SCR_BACKGROUND);  
+          display.fillRect(xx+(12*CHAR_W_PX), yy, 4 * CHAR_W_PX, CHAR_H_PX, SCR_BACKGROUND);   // blank rssi     
           display.println(snprintf_buf);       
 
            
@@ -1149,29 +1052,6 @@ void WiFiEventHandler(WiFiEvent_t event)  {
 24 SYSTEM_EVENT_ETH_GOT_IP               < ESP32 ethernet got IP from connected AP
 25 SYSTEM_EVENT_MAX
 */
-//=================================================================================================
-
-    void PrintFrPeriod(bool LF) {
-      now_millis=millis();
-      now_micros=micros();
-
-      uint32_t period = now_millis - prev_pt_millis;
-      if (period < 10) {
-        period = now_micros - prev_pt_micros;
-        Log.printf(" FrPeriod uS=%d", period);
-      } else {
-        Log.printf(" FrPeriod mS=%d", period);
-      }
-
-      if (LF) {
-        Log.print("\t\n");
-      } else {
-       Log.print("\t");
-      }
-    
-      prev_pt_millis=now_millis;
-      prev_pt_micros=now_micros;
-    }
 
     //===================================================================
     void Free_Bluetooth_RAM() {
