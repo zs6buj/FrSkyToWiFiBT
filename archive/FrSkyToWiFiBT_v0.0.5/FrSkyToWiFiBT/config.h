@@ -18,7 +18,7 @@ Complete change log and debugging options are at the bottom of this tab
          2021-03-09   Always auto detect uart polarity, speed and protocol.
                       Other small fixes.
  v0.0.4  2021-08-05   Remove TCP/IP, simplify UDP & BT
- v0.0 5  2022-02-01   Add Lolin D1 mini variant                   
+ v0.0 5  2022-02-01   Use IDE def for Lolin D1 mini variant                   
                       
                                                                  
 */
